@@ -1,4 +1,4 @@
-"""Launcher for the Note RAG application."""
+"""Run the Note RAG command-line application."""
 
 from note_rag.app.cli import main
 
