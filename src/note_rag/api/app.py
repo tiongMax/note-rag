@@ -4,9 +4,10 @@ import json
 import uuid
 from pathlib import Path
 
-from fastapi import FastAPI, File, HTTPException, Response, UploadFile
+from fastapi import FastAPI, File, HTTPException, Response, UploadFile, status
 from starlette.concurrency import run_in_threadpool
 from starlette.responses import StreamingResponse
+from starlette.staticfiles import StaticFiles
 
 from note_rag.api.models import (
     ChatMessageResponse,
@@ -258,6 +259,24 @@ def create_app(
             chunks = ChunkRepository(session).list_for_document(document_id)
             return [StoredChunkResponse.model_validate(item) for item in chunks]
 
+    @app.delete(
+        "/api/v1/documents/{document_id}",
+        status_code=status.HTTP_204_NO_CONTENT,
+        tags=["documents"],
+    )
+    def delete_document(document_id: uuid.UUID) -> Response:
+        storage_uri: str | None
+        with resolved_database.session() as session:
+            repository = DocumentRepository(session)
+            document = repository.get(document_id)
+            if document is None:
+                raise HTTPException(status_code=404, detail="document not found")
+            storage_uri = document.storage_uri
+            repository.delete(document)
+        if storage_uri is not None:
+            resolved_storage.delete(storage_uri)
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+
     @app.get(
         "/api/v1/ingestion-jobs/{job_id}",
         response_model=IngestionJobResponse,
@@ -480,6 +499,14 @@ def create_app(
                     for message in messages
                 ],
             )
+
+    frontend_dist = Path(__file__).resolve().parents[3] / "frontend" / "dist"
+    if frontend_dist.is_dir():
+        app.mount(
+            "/",
+            StaticFiles(directory=frontend_dist, html=True),
+            name="operator-interface",
+        )
 
     return app
 
