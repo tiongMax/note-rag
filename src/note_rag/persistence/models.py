@@ -66,6 +66,11 @@ class IndexingStatus(StrEnum):
     FAILED = "failed"
 
 
+class ChatRole(StrEnum):
+    USER = "user"
+    ASSISTANT = "assistant"
+
+
 class Document(TimestampMixin, Base):
     __tablename__ = "documents"
     __table_args__ = (
@@ -213,3 +218,73 @@ class IngestionJob(TimestampMixin, Base):
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     document: Mapped[Document] = relationship(back_populates="ingestion_jobs")
+
+
+class Conversation(TimestampMixin, Base):
+    __tablename__ = "conversations"
+    __table_args__ = (
+        Index("ix_conversations_updated_at", "updated_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+
+    messages: Mapped[list["ChatMessageRecord"]] = relationship(
+        back_populates="conversation",
+        cascade="all, delete-orphan",
+        order_by="ChatMessageRecord.position",
+    )
+
+
+class ChatMessageRecord(TimestampMixin, Base):
+    __tablename__ = "chat_messages"
+    __table_args__ = (
+        CheckConstraint(
+            "token_count >= 0",
+            name="ck_chat_messages_token_count",
+        ),
+        CheckConstraint(
+            "context_token_count >= 0",
+            name="ck_chat_messages_context_token_count",
+        ),
+        CheckConstraint(
+            "position >= 0",
+            name="ck_chat_messages_position",
+        ),
+        UniqueConstraint(
+            "conversation_id",
+            "position",
+            name="uq_chat_messages_conversation_position",
+        ),
+        Index(
+            "ix_chat_messages_conversation_created",
+            "conversation_id",
+            "created_at",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    conversation_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("conversations.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    position: Mapped[int] = mapped_column(Integer, nullable=False)
+    role: Mapped[ChatRole] = mapped_column(
+        Enum(ChatRole, name="chat_role"),
+        nullable=False,
+    )
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    citations: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSON,
+        default=list,
+        nullable=False,
+    )
+    token_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    context_token_count: Mapped[int] = mapped_column(
+        Integer,
+        default=0,
+        nullable=False,
+    )
+    model_name: Mapped[str | None] = mapped_column(String(255))
+
+    conversation: Mapped[Conversation] = relationship(back_populates="messages")

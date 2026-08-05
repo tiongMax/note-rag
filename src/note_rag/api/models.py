@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from note_rag.chunking.models import Chunk
 from note_rag.persistence import (
+    ChatRole,
     DocumentStatus,
     IndexingStatus,
     IngestionJobStatus,
@@ -176,3 +177,55 @@ class ContextResponse(BaseModel):
     duplicates_removed: int
     truncated: bool
     reranker_model: str | None
+
+
+class ChatRequest(ContextRequest):
+    conversation_id: uuid.UUID | None = None
+
+
+class CitationResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    citation_id: int
+    chunk_id: uuid.UUID
+    document_id: uuid.UUID
+    filename: str
+    position: int
+    source_metadata: dict[str, Any]
+
+
+class ChatResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    conversation_id: uuid.UUID
+    message_id: uuid.UUID
+    answer: str
+    citations: list[CitationResponse]
+    model_name: str
+
+
+class ChatMessageResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    conversation_id: uuid.UUID
+    position: int
+    role: ChatRole
+    content: str
+    citations: list[CitationResponse]
+    token_count: int
+    context_token_count: int
+    model_name: str | None
+    created_at: datetime
+
+
+class ConversationResponse(BaseModel):
+    id: uuid.UUID
+    title: str
+    message_count: int
+    created_at: datetime
+    updated_at: datetime
+
+
+class ConversationDetailResponse(ConversationResponse):
+    messages: list[ChatMessageResponse]

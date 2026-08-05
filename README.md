@@ -21,9 +21,12 @@ responsibilities while deliberately simplifying its scale.
 - Injectable reranker with a deterministic lexical baseline
 - Duplicate-free, token-budgeted context packages
 - Source-labelled context chunks with preserved metadata
+- Persisted conversations and ordered message history
+- Grounded Gemini chat with source citations
+- Regular and server-sent-event streaming chat endpoints
 - Document, chunk, and ingestion-job inspection endpoints
 
-Generation is intentionally absent until its corresponding phase.
+Background workers remain intentionally deferred to their corresponding phase.
 
 ## Setup
 
@@ -109,6 +112,36 @@ Invoke-RestMethod `
 The response contains the rendered context, sequential citation IDs, original
 retrieval and reranker scores, exact token usage, truncation state, and source
 metadata for every included chunk.
+
+## Chat
+
+```powershell
+$body = @{
+  query = "How does retrieval work?"
+  filters = @{
+    filenames = @("example.pdf")
+  }
+} | ConvertTo-Json -Depth 4
+
+$answer = Invoke-RestMethod `
+  -Method Post `
+  -Uri http://127.0.0.1:8000/api/v1/chat `
+  -ContentType "application/json" `
+  -Body $body
+
+$answer
+```
+
+Send the returned `conversation_id` with a later request to include persisted
+history. Use `POST /api/v1/chat/stream` for server-sent events. The stream emits
+`metadata`, `delta`, and `done` events; the final event contains citations.
+
+Conversation inspection endpoints:
+
+```text
+GET /api/v1/conversations
+GET /api/v1/conversations/{conversation_id}
+```
 
 ## Tests
 

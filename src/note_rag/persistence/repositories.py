@@ -2,14 +2,18 @@
 
 import uuid
 from collections.abc import Callable, Iterable
+from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from note_rag.chunking import Chunk
 from note_rag.persistence.models import (
+    ChatMessageRecord,
+    ChatRole,
     ChunkRecord,
+    Conversation,
     Document,
     IngestionJob,
     IngestionJobStatus,
@@ -131,3 +135,76 @@ class IngestionJobRepository:
         job.error_message = error_message
         self.session.flush()
         return job
+
+
+class ConversationRepository:
+    def __init__(self, session: Session) -> None:
+        self.session = session
+
+    def add(self, conversation: Conversation) -> Conversation:
+        self.session.add(conversation)
+        self.session.flush()
+        return conversation
+
+    def get(self, conversation_id: uuid.UUID) -> Conversation | None:
+        return self.session.get(Conversation, conversation_id)
+
+    def list(self, *, offset: int = 0, limit: int = 100) -> list[Conversation]:
+        statement = (
+            select(Conversation)
+            .order_by(Conversation.updated_at.desc(), Conversation.id)
+            .offset(offset)
+            .limit(limit)
+        )
+        return list(self.session.scalars(statement))
+
+    def delete(self, conversation: Conversation) -> None:
+        self.session.delete(conversation)
+        self.session.flush()
+
+
+class ChatMessageRepository:
+    def __init__(self, session: Session) -> None:
+        self.session = session
+
+    def add(
+        self,
+        conversation: Conversation,
+        *,
+        role: ChatRole,
+        content: str,
+        token_count: int,
+        citations: list[dict[str, Any]] | None = None,
+        context_token_count: int = 0,
+        model_name: str | None = None,
+    ) -> ChatMessageRecord:
+        position = self.session.scalar(
+            select(func.max(ChatMessageRecord.position)).where(
+                ChatMessageRecord.conversation_id == conversation.id
+            )
+        )
+        message = ChatMessageRecord(
+            conversation=conversation,
+            position=(position + 1 if position is not None else 0),
+            role=role,
+            content=content,
+            token_count=token_count,
+            citations=citations or [],
+            context_token_count=context_token_count,
+            model_name=model_name,
+        )
+        conversation.updated_at = datetime.now(UTC)
+        self.session.add(message)
+        self.session.flush()
+        return message
+
+    def list_for_conversation(
+        self,
+        conversation_id: uuid.UUID,
+    ) -> list[ChatMessageRecord]:
+        statement = (
+            select(ChatMessageRecord)
+            .where(ChatMessageRecord.conversation_id == conversation_id)
+            .order_by(ChatMessageRecord.position)
+        )
+        return list(self.session.scalars(statement))
