@@ -1,5 +1,6 @@
 """Content-addressed local file storage."""
 
+import os
 import uuid
 from dataclasses import dataclass
 from os import name as os_name
@@ -55,3 +56,15 @@ class LocalFileStorage:
                 path.parent.rmdir()
             except OSError:
                 pass
+              
+    def read(self, uri: str) -> bytes:
+        parsed = urlparse(uri)
+        if parsed.scheme != "file":
+            raise ValueError("storage URI must use the file scheme")
+        raw_path = unquote(parsed.path)
+        if os.name == "nt" and raw_path.startswith("/"):
+            raw_path = raw_path[1:]
+        path = Path(raw_path).resolve()
+        if not path.is_relative_to(self.root):
+            raise ValueError("storage URI is outside the configured root")
+        return path.read_bytes()

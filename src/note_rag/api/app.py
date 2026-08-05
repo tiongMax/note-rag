@@ -1,7 +1,9 @@
 """FastAPI application factory."""
 
 import json
+import threading
 import uuid
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, File, HTTPException, Response, UploadFile, status
@@ -41,7 +43,12 @@ from note_rag.embeddings import (
     IndexingService,
     QueryEmbeddingProvider,
 )
-from note_rag.ingest import IngestionPipeline, LocalFileStorage, ParserRegistry
+from note_rag.ingest import (
+    IngestionPipeline,
+    IngestionWorker,
+    LocalFileStorage,
+    ParserRegistry,
+)
 from note_rag.ingest.errors import UnsupportedDocumentTypeError
 from note_rag.persistence import (
     ChatMessageRepository,
@@ -116,12 +123,45 @@ def create_app(
             chunk_overlap=app_settings.chunk_overlap,
         ),
     )
+    ingestion_worker = IngestionWorker(
+        resolved_database,
+        pipeline,
+        indexing_service,
+        max_attempts=app_settings.worker_max_attempts,
+        retry_backoff_seconds=app_settings.worker_retry_backoff_seconds,
+        poll_interval_seconds=app_settings.worker_poll_interval_seconds,
+        lease_timeout_seconds=app_settings.worker_lease_timeout_seconds,
+    )
+    stop_event = threading.Event()
+    worker_thread: threading.Thread | None = None
+
+    @asynccontextmanager
+    async def lifespan(application: FastAPI):
+        nonlocal worker_thread
+        if app_settings.background_worker_enabled:
+            worker_thread = threading.Thread(
+                target=ingestion_worker.run_forever,
+                args=(stop_event,),
+                name="note-rag-ingestion-worker",
+                daemon=True,
+            )
+            worker_thread.start()
+            application.state.worker_thread = worker_thread
+        try:
+            yield
+        finally:
+            stop_event.set()
+            if worker_thread is not None:
+                worker_thread.join(timeout=5)
+
     app = FastAPI(
         title=app_settings.app_name,
         version="0.1.0",
         description="A compact ingestion, retrieval, and grounded chat service.",
+        lifespan=lifespan,
     )
     app.state.database = resolved_database
+    app.state.ingestion_worker = ingestion_worker
 
     @app.get("/health", tags=["system"])
     async def health() -> dict[str, str]:
@@ -184,24 +224,17 @@ def create_app(
             )
 
         result = await run_in_threadpool(
-            pipeline.ingest,
+            pipeline.enqueue,
             filename=filename,
             media_type=file.content_type or "application/octet-stream",
             content=content,
         )
         if result.duplicate:
             response.status_code = 200
-        elif result.error_message is not None:
-            response.status_code = 422
-        indexing_result = None
-        if result.status.value == "ready":
-            indexing_result = await run_in_threadpool(
-                indexing_service.index_document,
-                result.document_id,
-                job_id=result.job_id,
-            )
-            if indexing_result.error_message is not None:
-                response.status_code = 422
+        elif app_settings.background_worker_enabled:
+            response.status_code = 202
+        elif result.job_id is not None:
+            await run_in_threadpool(ingestion_worker.run_job, result.job_id)
         with resolved_database.session() as session:
             persisted_document = DocumentRepository(session).get(result.document_id)
             if persisted_document is None:
@@ -209,18 +242,21 @@ def create_app(
                     status_code=500,
                     detail="document was not persisted",
                 )
+            if (
+                not app_settings.background_worker_enabled
+                and persisted_document.status.value == "failed"
+            ):
+                response.status_code = 422
         return IngestionResponse(
             document_id=result.document_id,
             job_id=result.job_id,
-            status=result.status,
+            status=persisted_document.status,
             duplicate=result.duplicate,
-            chunk_count=result.chunk_count,
-            token_count=result.token_count,
-            error_message=result.error_message,
+            chunk_count=persisted_document.chunk_count,
+            token_count=persisted_document.token_count,
+            error_message=persisted_document.error_message,
             indexing_status=persisted_document.indexing_status,
-            indexing_error=(
-                indexing_result.error_message if indexing_result is not None else None
-            ),
+            indexing_error=persisted_document.indexing_error,
         )
 
     @app.get(

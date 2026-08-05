@@ -5,6 +5,13 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
+def _env_bool(name: str, default: bool) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
 @dataclass(frozen=True, slots=True)
 class ApiSettings:
     app_name: str = "Note RAG"
@@ -27,6 +34,11 @@ class ApiSettings:
     chat_max_output_tokens: int = 1024
     chat_history_max_messages: int = 20
     chat_history_max_tokens: int = 2000
+    background_worker_enabled: bool = True
+    worker_max_attempts: int = 3
+    worker_retry_backoff_seconds: float = 2.0
+    worker_poll_interval_seconds: float = 1.0
+    worker_lease_timeout_seconds: float = 300.0
     gemini_api_key: str = ""
 
     @classmethod
@@ -64,6 +76,20 @@ class ApiSettings:
             ),
             chat_history_max_tokens=int(
                 os.getenv("CHAT_HISTORY_MAX_TOKENS", "2000")
+            ),
+            background_worker_enabled=_env_bool(
+                "BACKGROUND_WORKER_ENABLED",
+                True,
+            ),
+            worker_max_attempts=int(os.getenv("WORKER_MAX_ATTEMPTS", "3")),
+            worker_retry_backoff_seconds=float(
+                os.getenv("WORKER_RETRY_BACKOFF_SECONDS", "2")
+            ),
+            worker_poll_interval_seconds=float(
+                os.getenv("WORKER_POLL_INTERVAL_SECONDS", "1")
+            ),
+            worker_lease_timeout_seconds=float(
+                os.getenv("WORKER_LEASE_TIMEOUT_SECONDS", "300")
             ),
             gemini_api_key=(
                 os.getenv("GEMINI_API_KEY")
