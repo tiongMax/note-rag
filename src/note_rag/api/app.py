@@ -9,6 +9,8 @@ from starlette.concurrency import run_in_threadpool
 from note_rag.api.models import (
     ChunkTextRequest,
     ChunkTextResponse,
+    ContextRequest,
+    ContextResponse,
     DocumentResponse,
     IndexingResponse,
     IngestionJobResponse,
@@ -19,6 +21,7 @@ from note_rag.api.models import (
 )
 from note_rag.api.settings import ApiSettings, api_settings
 from note_rag.chunking import RegexTokenCounter, TokenChunker
+from note_rag.context import ContextBuilder, LexicalReranker, Reranker
 from note_rag.embeddings import (
     GeminiEmbeddingProvider,
     IndexingService,
@@ -41,12 +44,14 @@ def create_app(
     database: Database | None = None,
     storage: LocalFileStorage | None = None,
     embedding_provider: QueryEmbeddingProvider | None = None,
+    reranker: Reranker | None = None,
 ) -> FastAPI:
     """Build an application without starting network services."""
 
     resolved_database = database or Database()
     resolved_storage = storage or LocalFileStorage(app_settings.storage_path)
     parser_registry = ParserRegistry()
+    token_counter = RegexTokenCounter()
     resolved_embedding_provider = (
         embedding_provider
         or GeminiEmbeddingProvider(
@@ -66,6 +71,11 @@ def create_app(
         candidate_multiplier=app_settings.retrieval_candidate_multiplier,
         rrf_k=app_settings.retrieval_rrf_k,
     )
+    context_builder = ContextBuilder(
+        retrieval_service,
+        reranker or LexicalReranker(token_counter),
+        token_counter=token_counter,
+    )
     pipeline = IngestionPipeline(
         resolved_database,
         resolved_storage,
@@ -81,7 +91,6 @@ def create_app(
         description="A compact ingestion, indexing, and hybrid retrieval service.",
     )
     app.state.database = resolved_database
-    token_counter = RegexTokenCounter()
 
     @app.get("/health", tags=["system"])
     async def health() -> dict[str, str]:
@@ -279,6 +288,48 @@ def create_app(
         except RuntimeError as error:
             raise HTTPException(status_code=503, detail=str(error)) from error
         return SearchResponse.model_validate(result, from_attributes=True)
+
+    @app.post(
+        "/api/v1/retrieval/context",
+        response_model=ContextResponse,
+        tags=["retrieval"],
+    )
+    async def build_context(request: ContextRequest) -> ContextResponse:
+        filters = SearchFilters(
+            document_ids=tuple(request.filters.document_ids),
+            filenames=tuple(request.filters.filenames),
+            media_types=tuple(request.filters.media_types),
+            source_metadata=request.filters.source_metadata,
+        )
+        try:
+            result = await run_in_threadpool(
+                context_builder.build,
+                request.query,
+                mode=request.mode,
+                candidate_k=(
+                    request.candidate_k or app_settings.context_candidate_k
+                ),
+                max_chunks=(
+                    request.max_chunks or app_settings.context_max_chunks
+                ),
+                max_context_tokens=(
+                    request.max_context_tokens
+                    or app_settings.context_max_tokens
+                ),
+                vector_weight=request.vector_weight,
+                rerank=request.rerank,
+                rerank_weight=(
+                    request.rerank_weight
+                    if request.rerank_weight is not None
+                    else app_settings.rerank_weight
+                ),
+                filters=filters,
+            )
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        except RuntimeError as error:
+            raise HTTPException(status_code=503, detail=str(error)) from error
+        return ContextResponse.model_validate(result, from_attributes=True)
 
     return app
 

@@ -1,4 +1,4 @@
-"""Environment-backed settings for the Phase 1 API."""
+"""Environment-backed application settings."""
 
 import os
 from dataclasses import dataclass
@@ -18,6 +18,10 @@ class ApiSettings:
     embedding_batch_size: int = 32
     retrieval_candidate_multiplier: int = 4
     retrieval_rrf_k: int = 60
+    context_candidate_k: int = 20
+    context_max_chunks: int = 8
+    context_max_tokens: int = 1200
+    rerank_weight: float = 0.7
     gemini_api_key: str = ""
 
     @classmethod
@@ -41,6 +45,10 @@ class ApiSettings:
                 os.getenv("RETRIEVAL_CANDIDATE_MULTIPLIER", "4")
             ),
             retrieval_rrf_k=int(os.getenv("RETRIEVAL_RRF_K", "60")),
+            context_candidate_k=int(os.getenv("CONTEXT_CANDIDATE_K", "20")),
+            context_max_chunks=int(os.getenv("CONTEXT_MAX_CHUNKS", "8")),
+            context_max_tokens=int(os.getenv("CONTEXT_MAX_TOKENS", "1200")),
+            rerank_weight=float(os.getenv("RERANK_WEIGHT", "0.7")),
             gemini_api_key=(
                 os.getenv("GEMINI_API_KEY")
                 or os.getenv("GOOGLE_API_KEY")

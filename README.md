@@ -18,10 +18,12 @@ responsibilities while deliberately simplifying its scale.
 - Vector and PostgreSQL full-text retrieval
 - Document and chunk metadata filters
 - Weighted reciprocal-rank hybrid fusion
+- Injectable reranker with a deterministic lexical baseline
+- Duplicate-free, token-budgeted context packages
+- Source-labelled context chunks with preserved metadata
 - Document, chunk, and ingestion-job inspection endpoints
 
-Reranking and generation are intentionally absent until their corresponding
-phases.
+Generation is intentionally absent until its corresponding phase.
 
 ## Setup
 
@@ -80,6 +82,33 @@ Invoke-RestMethod `
 
 Search modes are `vector`, `keyword`, and `hybrid`. Filters support document
 IDs, filenames, media types, and exact source-metadata fields.
+
+## Build a context package
+
+```powershell
+$body = @{
+  query = "How does retrieval work?"
+  mode = "hybrid"
+  candidate_k = 20
+  max_chunks = 8
+  max_context_tokens = 1200
+  rerank = $true
+  rerank_weight = 0.7
+  filters = @{
+    filenames = @("example.pdf")
+  }
+} | ConvertTo-Json -Depth 4
+
+Invoke-RestMethod `
+  -Method Post `
+  -Uri http://127.0.0.1:8000/api/v1/retrieval/context `
+  -ContentType "application/json" `
+  -Body $body
+```
+
+The response contains the rendered context, sequential citation IDs, original
+retrieval and reranker scores, exact token usage, truncation state, and source
+metadata for every included chunk.
 
 ## Tests
 

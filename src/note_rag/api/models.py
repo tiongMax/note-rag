@@ -1,4 +1,4 @@
-"""Phase 1 HTTP request and response contracts."""
+"""HTTP request and response contracts."""
 
 import uuid
 from datetime import datetime
@@ -131,3 +131,48 @@ class SearchResponse(BaseModel):
     query: str
     mode: SearchMode
     hits: list[SearchHitResponse]
+
+
+class ContextRequest(BaseModel):
+    query: str = Field(min_length=1)
+    mode: SearchMode = SearchMode.HYBRID
+    candidate_k: int | None = Field(default=None, ge=1, le=100)
+    max_chunks: int | None = Field(default=None, ge=1, le=100)
+    max_context_tokens: int | None = Field(default=None, ge=1)
+    vector_weight: float = Field(default=0.7, ge=0.0, le=1.0)
+    rerank: bool = True
+    rerank_weight: float | None = Field(default=None, ge=0.0, le=1.0)
+    filters: SearchFiltersRequest = Field(default_factory=SearchFiltersRequest)
+
+
+class ContextChunkResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    citation_id: int
+    chunk_id: uuid.UUID
+    document_id: uuid.UUID
+    filename: str
+    media_type: str
+    position: int
+    text: str
+    token_count: int
+    source_metadata: dict[str, Any]
+    retrieval_score: float
+    rerank_score: float | None
+    score: float
+    truncated: bool
+
+
+class ContextResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    query: str
+    mode: SearchMode
+    context: str
+    chunks: list[ContextChunkResponse]
+    token_count: int
+    token_budget: int
+    candidates_considered: int
+    duplicates_removed: int
+    truncated: bool
+    reranker_model: str | None

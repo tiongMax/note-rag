@@ -158,3 +158,35 @@ def test_searches_uploaded_chunks(database: Database, tmp_path: Path) -> None:
     assert search.status_code == 200
     assert search.json()["hits"][0]["filename"] == "retrieval.txt"
     assert search.json()["hits"][0]["keyword_score"] is not None
+
+
+def test_builds_reranked_context(database: Database, tmp_path: Path) -> None:
+    client = build_client(database, tmp_path)
+    upload = client.post(
+        "/api/v1/documents",
+        files={
+            "file": (
+                "context.txt",
+                b"apples grow in orchards with careful cultivation",
+                "text/plain",
+            )
+        },
+    )
+
+    context = client.post(
+        "/api/v1/retrieval/context",
+        json={
+            "query": "apple orchards",
+            "max_context_tokens": 80,
+            "filters": {"filenames": ["context.txt"]},
+        },
+    )
+
+    assert upload.status_code == 201
+    assert context.status_code == 200
+    body = context.json()
+    assert body["chunks"][0]["filename"] == "context.txt"
+    assert body["chunks"][0]["citation_id"] == 1
+    assert body["chunks"][0]["source_metadata"]["source_id"] == "context.txt"
+    assert body["reranker_model"] == "lexical-overlap-v1"
+    assert body["token_count"] <= body["token_budget"]
