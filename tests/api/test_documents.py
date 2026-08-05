@@ -1,3 +1,4 @@
+import time
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -51,6 +52,8 @@ def build_client(
         chunk_overlap=1,
         storage_path=tmp_path,
         max_upload_bytes=max_upload_bytes,
+        background_worker_enabled=False,
+        worker_max_attempts=1,
     )
     return TestClient(
         create_app(
@@ -61,6 +64,100 @@ def build_client(
             chat_provider=FakeChatProvider(),
         )
     )
+
+
+def build_background_client(database: Database, tmp_path: Path) -> TestClient:
+    settings = ApiSettings(
+        chunk_size=3,
+        chunk_overlap=1,
+        storage_path=tmp_path,
+        background_worker_enabled=True,
+    )
+    return TestClient(
+        create_app(
+            settings,
+            database=database,
+            storage=LocalFileStorage(tmp_path),
+            embedding_provider=FakeEmbeddingProvider(),
+            chat_provider=FakeChatProvider(),
+        )
+    )
+
+
+def test_upload_queues_background_job(
+    database: Database,
+    tmp_path: Path,
+) -> None:
+    client = build_background_client(database, tmp_path)
+
+    upload = client.post(
+        "/api/v1/documents",
+        files={
+            "file": (
+                "background.txt",
+                b"queued for background processing",
+                "text/plain",
+            )
+        },
+    )
+    job = client.get(
+        f"/api/v1/ingestion-jobs/{upload.json()['job_id']}"
+    )
+
+    assert upload.status_code == 202
+    assert upload.json()["status"] == "pending"
+    assert job.status_code == 200
+    assert job.json()["status"] == "queued"
+    assert job.json()["attempts"] == 0
+
+
+def test_lifespan_worker_completes_queued_upload(
+    database: Database,
+    tmp_path: Path,
+) -> None:
+    settings = ApiSettings(
+        chunk_size=3,
+        chunk_overlap=1,
+        storage_path=tmp_path,
+        background_worker_enabled=True,
+        worker_poll_interval_seconds=0.01,
+        worker_retry_backoff_seconds=0,
+    )
+    app = create_app(
+        settings,
+        database=database,
+        storage=LocalFileStorage(tmp_path),
+        embedding_provider=FakeEmbeddingProvider(),
+        chat_provider=FakeChatProvider(),
+    )
+
+    with TestClient(app) as client:
+        upload = client.post(
+            "/api/v1/documents",
+            files={
+                "file": (
+                    "lifespan.txt",
+                    b"processed by lifespan worker",
+                    "text/plain",
+                )
+            },
+        )
+        deadline = time.monotonic() + 2
+        job = client.get(
+            f"/api/v1/ingestion-jobs/{upload.json()['job_id']}"
+        )
+        while time.monotonic() < deadline:
+            if job.json()["status"] == "completed":
+                break
+            time.sleep(0.01)
+            job = client.get(
+                f"/api/v1/ingestion-jobs/{upload.json()['job_id']}"
+            )
+
+    assert upload.status_code == 202
+    assert job.json()["status"] == "completed"
+    assert job.json()["progress"] == 100
+    assert job.json()["worker_id"] is None
 
 
 def test_upload_and_inspect_document(

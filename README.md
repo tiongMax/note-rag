@@ -24,9 +24,12 @@ responsibilities while deliberately simplifying its scale.
 - Persisted conversations and ordered message history
 - Grounded Gemini chat with source citations
 - Regular and server-sent-event streaming chat endpoints
+- Database-backed background ingestion and indexing worker
+- Retry scheduling, worker leases, and stale-job recovery
 - Document, chunk, and ingestion-job inspection endpoints
 
-Background workers remain intentionally deferred to their corresponding phase.
+A minimal web interface remains intentionally deferred to its corresponding
+phase.
 
 ## Setup
 
@@ -61,6 +64,29 @@ Invoke-RestMethod `
 ```
 
 Supported extensions are `.txt`, `.md`, `.markdown`, and `.pdf`.
+
+New uploads return `202 Accepted` with a queued ingestion job. Monitor progress
+with:
+
+```text
+GET /api/v1/ingestion-jobs/{job_id}
+```
+
+The persisted lifecycle is:
+
+```text
+QUEUED
+  -> PARSING
+  -> CHUNKING
+  -> EMBEDDING
+  -> INDEXING
+  -> COMPLETED
+```
+
+Failed attempts are retried with exponential backoff. Exhausted jobs remain
+inspectable as `FAILED`, and stale worker leases are returned to `QUEUED` when
+the application restarts. Set `BACKGROUND_WORKER_ENABLED=false` to process
+uploads inline for local debugging.
 
 ## Search indexed chunks
 
