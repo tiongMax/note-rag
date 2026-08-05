@@ -1,9 +1,11 @@
+from collections.abc import Iterator
 from pathlib import Path
 
 from fastapi.testclient import TestClient
 
 from note_rag.api.app import create_app
 from note_rag.api.settings import ApiSettings
+from note_rag.chat import ChatTurn
 from note_rag.ingest import LocalFileStorage
 from note_rag.persistence import Database
 
@@ -17,6 +19,25 @@ class FakeEmbeddingProvider:
 
     def embed_query(self, query: str) -> list[float]:
         return [1.0, *([0.0] * 767)]
+
+
+class FakeChatProvider:
+    model_name = "fake-chat"
+
+    def generate(
+        self,
+        system_instruction: str,
+        turns: list[ChatTurn],
+    ) -> str:
+        return "Apples grow in orchards [1]."
+
+    def stream(
+        self,
+        system_instruction: str,
+        turns: list[ChatTurn],
+    ) -> Iterator[str]:
+        yield "Apples grow "
+        yield "in orchards [1]."
 
 
 def build_client(
@@ -37,6 +58,7 @@ def build_client(
             database=database,
             storage=LocalFileStorage(tmp_path),
             embedding_provider=FakeEmbeddingProvider(),
+            chat_provider=FakeChatProvider(),
         )
     )
 
@@ -190,3 +212,81 @@ def test_builds_reranked_context(database: Database, tmp_path: Path) -> None:
     assert body["chunks"][0]["source_metadata"]["source_id"] == "context.txt"
     assert body["reranker_model"] == "lexical-overlap-v1"
     assert body["token_count"] <= body["token_budget"]
+
+
+def test_chat_persists_history_and_citations(
+    database: Database,
+    tmp_path: Path,
+) -> None:
+    client = build_client(database, tmp_path)
+    upload = client.post(
+        "/api/v1/documents",
+        files={
+            "file": (
+                "chat.txt",
+                b"apples grow in orchards",
+                "text/plain",
+            )
+        },
+    )
+    first = client.post(
+        "/api/v1/chat",
+        json={
+            "query": "Where do apples grow?",
+            "filters": {"filenames": ["chat.txt"]},
+        },
+    )
+    follow_up = client.post(
+        "/api/v1/chat",
+        json={
+            "query": "Can you repeat that?",
+            "conversation_id": first.json()["conversation_id"],
+            "filters": {"filenames": ["chat.txt"]},
+        },
+    )
+    conversation = client.get(
+        f"/api/v1/conversations/{first.json()['conversation_id']}"
+    )
+
+    assert upload.status_code == 201
+    assert first.status_code == 200
+    assert first.json()["citations"][0]["filename"] == "chat.txt"
+    assert follow_up.status_code == 200
+    assert conversation.status_code == 200
+    assert conversation.json()["message_count"] == 4
+    assert [item["role"] for item in conversation.json()["messages"]] == [
+        "user",
+        "assistant",
+        "user",
+        "assistant",
+    ]
+
+
+def test_streams_chat_events(database: Database, tmp_path: Path) -> None:
+    client = build_client(database, tmp_path)
+    client.post(
+        "/api/v1/documents",
+        files={
+            "file": (
+                "stream.txt",
+                b"apples grow in orchards",
+                "text/plain",
+            )
+        },
+    )
+
+    with client.stream(
+        "POST",
+        "/api/v1/chat/stream",
+        json={
+            "query": "Where do apples grow?",
+            "filters": {"filenames": ["stream.txt"]},
+        },
+    ) as response:
+        body = "".join(response.iter_text())
+
+    assert response.status_code == 200
+    assert "event: metadata" in body
+    assert "event: delta" in body
+    assert "event: done" in body
+    assert "Apples grow" in body

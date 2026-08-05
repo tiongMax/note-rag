@@ -4,7 +4,11 @@ from sqlalchemy.orm import Session
 
 from note_rag.chunking import TokenChunker
 from note_rag.persistence import (
+    ChatMessageRepository,
+    ChatRole,
     ChunkRepository,
+    Conversation,
+    ConversationRepository,
     Document,
     DocumentRepository,
     IngestionJob,
@@ -97,3 +101,28 @@ def test_chunk_position_is_unique_per_document(session: Session) -> None:
     with pytest.raises(IntegrityError):
         repository.add_from_chunks(document, generated)
     session.rollback()
+
+
+def test_conversation_messages_and_cascade_delete(session: Session) -> None:
+    conversations = ConversationRepository(session)
+    conversation = conversations.add(Conversation(title="Stored chat"))
+    messages = ChatMessageRepository(session)
+    user = messages.add(
+        conversation,
+        role=ChatRole.USER,
+        content="Question",
+        token_count=1,
+    )
+    assistant = messages.add(
+        conversation,
+        role=ChatRole.ASSISTANT,
+        content="Answer [1]",
+        token_count=3,
+        citations=[{"citation_id": 1}],
+        context_token_count=10,
+        model_name="fake-chat",
+    )
+
+    assert messages.list_for_conversation(conversation.id) == [user, assistant]
+    conversations.delete(conversation)
+    assert messages.list_for_conversation(conversation.id) == []

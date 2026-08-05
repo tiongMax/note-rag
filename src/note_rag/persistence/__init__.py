@@ -3,7 +3,10 @@
 from note_rag.persistence.database import Database
 from note_rag.persistence.models import (
     Base,
+    ChatMessageRecord,
+    ChatRole,
     ChunkRecord,
+    Conversation,
     Document,
     DocumentStatus,
     IndexingStatus,
@@ -11,15 +14,22 @@ from note_rag.persistence.models import (
     IngestionJobStatus,
 )
 from note_rag.persistence.repositories import (
+    ChatMessageRepository,
     ChunkRepository,
+    ConversationRepository,
     DocumentRepository,
     IngestionJobRepository,
 )
 
 __all__ = [
     "Base",
+    "ChatMessageRecord",
+    "ChatMessageRepository",
+    "ChatRole",
     "ChunkRecord",
     "ChunkRepository",
+    "Conversation",
+    "ConversationRepository",
     "Database",
     "Document",
     "DocumentRepository",

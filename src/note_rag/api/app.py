@@ -1,16 +1,23 @@
 """FastAPI application factory."""
 
+import json
 import uuid
 from pathlib import Path
 
 from fastapi import FastAPI, File, HTTPException, Response, UploadFile
 from starlette.concurrency import run_in_threadpool
+from starlette.responses import StreamingResponse
 
 from note_rag.api.models import (
+    ChatMessageResponse,
+    ChatRequest,
+    ChatResponse,
     ChunkTextRequest,
     ChunkTextResponse,
     ContextRequest,
     ContextResponse,
+    ConversationDetailResponse,
+    ConversationResponse,
     DocumentResponse,
     IndexingResponse,
     IngestionJobResponse,
@@ -20,6 +27,12 @@ from note_rag.api.models import (
     StoredChunkResponse,
 )
 from note_rag.api.settings import ApiSettings, api_settings
+from note_rag.chat import (
+    ChatOptions,
+    ChatProvider,
+    ChatService,
+    GeminiChatProvider,
+)
 from note_rag.chunking import RegexTokenCounter, TokenChunker
 from note_rag.context import ContextBuilder, LexicalReranker, Reranker
 from note_rag.embeddings import (
@@ -30,7 +43,9 @@ from note_rag.embeddings import (
 from note_rag.ingest import IngestionPipeline, LocalFileStorage, ParserRegistry
 from note_rag.ingest.errors import UnsupportedDocumentTypeError
 from note_rag.persistence import (
+    ChatMessageRepository,
     ChunkRepository,
+    ConversationRepository,
     Database,
     DocumentRepository,
     IngestionJobRepository,
@@ -45,6 +60,7 @@ def create_app(
     storage: LocalFileStorage | None = None,
     embedding_provider: QueryEmbeddingProvider | None = None,
     reranker: Reranker | None = None,
+    chat_provider: ChatProvider | None = None,
 ) -> FastAPI:
     """Build an application without starting network services."""
 
@@ -76,6 +92,20 @@ def create_app(
         reranker or LexicalReranker(token_counter),
         token_counter=token_counter,
     )
+    resolved_chat_provider = chat_provider or GeminiChatProvider(
+        app_settings.chat_model,
+        api_key=app_settings.gemini_api_key,
+        temperature=app_settings.chat_temperature,
+        max_output_tokens=app_settings.chat_max_output_tokens,
+    )
+    chat_service = ChatService(
+        resolved_database,
+        context_builder,
+        resolved_chat_provider,
+        token_counter=token_counter,
+        history_max_messages=app_settings.chat_history_max_messages,
+        history_max_tokens=app_settings.chat_history_max_tokens,
+    )
     pipeline = IngestionPipeline(
         resolved_database,
         resolved_storage,
@@ -88,7 +118,7 @@ def create_app(
     app = FastAPI(
         title=app_settings.app_name,
         version="0.1.0",
-        description="A compact ingestion, indexing, and hybrid retrieval service.",
+        description="A compact ingestion, retrieval, and grounded chat service.",
     )
     app.state.database = resolved_database
 
@@ -330,6 +360,126 @@ def create_app(
         except RuntimeError as error:
             raise HTTPException(status_code=503, detail=str(error)) from error
         return ContextResponse.model_validate(result, from_attributes=True)
+
+    def chat_options(request: ChatRequest) -> ChatOptions:
+        return ChatOptions(
+            mode=request.mode,
+            candidate_k=request.candidate_k or app_settings.context_candidate_k,
+            max_chunks=request.max_chunks or app_settings.context_max_chunks,
+            max_context_tokens=(
+                request.max_context_tokens or app_settings.context_max_tokens
+            ),
+            vector_weight=request.vector_weight,
+            rerank=request.rerank,
+            rerank_weight=(
+                request.rerank_weight
+                if request.rerank_weight is not None
+                else app_settings.rerank_weight
+            ),
+            filters=SearchFilters(
+                document_ids=tuple(request.filters.document_ids),
+                filenames=tuple(request.filters.filenames),
+                media_types=tuple(request.filters.media_types),
+                source_metadata=request.filters.source_metadata,
+            ),
+        )
+
+    @app.post(
+        "/api/v1/chat",
+        response_model=ChatResponse,
+        tags=["chat"],
+    )
+    async def chat(request: ChatRequest) -> ChatResponse:
+        try:
+            result = await run_in_threadpool(
+                chat_service.ask,
+                request.query,
+                conversation_id=request.conversation_id,
+                options=chat_options(request),
+            )
+        except LookupError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        except RuntimeError as error:
+            raise HTTPException(status_code=503, detail=str(error)) from error
+        return ChatResponse.model_validate(result, from_attributes=True)
+
+    @app.post(
+        "/api/v1/chat/stream",
+        tags=["chat"],
+    )
+    async def stream_chat(request: ChatRequest) -> StreamingResponse:
+        def stream_events():
+            try:
+                for event in chat_service.stream(
+                    request.query,
+                    conversation_id=request.conversation_id,
+                    options=chat_options(request),
+                ):
+                    payload = json.dumps(event.data, ensure_ascii=False)
+                    yield f"event: {event.event}\ndata: {payload}\n\n"
+            except Exception as error:
+                payload = json.dumps(
+                    {"detail": str(error) or error.__class__.__name__},
+                    ensure_ascii=False,
+                )
+                yield f"event: error\ndata: {payload}\n\n"
+
+        return StreamingResponse(
+            stream_events(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache"},
+        )
+
+    @app.get(
+        "/api/v1/conversations",
+        response_model=list[ConversationResponse],
+        tags=["chat"],
+    )
+    def list_conversations() -> list[ConversationResponse]:
+        with resolved_database.session() as session:
+            conversations = ConversationRepository(session).list()
+            return [
+                ConversationResponse(
+                    id=conversation.id,
+                    title=conversation.title,
+                    message_count=len(conversation.messages),
+                    created_at=conversation.created_at,
+                    updated_at=conversation.updated_at,
+                )
+                for conversation in conversations
+            ]
+
+    @app.get(
+        "/api/v1/conversations/{conversation_id}",
+        response_model=ConversationDetailResponse,
+        tags=["chat"],
+    )
+    def get_conversation(
+        conversation_id: uuid.UUID,
+    ) -> ConversationDetailResponse:
+        with resolved_database.session() as session:
+            conversation = ConversationRepository(session).get(conversation_id)
+            if conversation is None:
+                raise HTTPException(
+                    status_code=404,
+                    detail="conversation not found",
+                )
+            messages = ChatMessageRepository(session).list_for_conversation(
+                conversation_id
+            )
+            return ConversationDetailResponse(
+                id=conversation.id,
+                title=conversation.title,
+                message_count=len(messages),
+                created_at=conversation.created_at,
+                updated_at=conversation.updated_at,
+                messages=[
+                    ChatMessageResponse.model_validate(message)
+                    for message in messages
+                ],
+            )
 
     return app
 
