@@ -12,7 +12,7 @@ responsibilities while deliberately simplifying its scale.
 - TXT, Markdown, and PDF parsing
 - Content-addressed local file storage
 - SHA-256 duplicate detection
-- Synchronous ingestion with persisted progress and failures
+- Background ingestion with persisted progress and failures
 - Batched Gemini embeddings stored in pgvector
 - Document indexing status and re-indexing
 - Vector and PostgreSQL full-text retrieval
@@ -27,9 +27,11 @@ responsibilities while deliberately simplifying its scale.
 - Database-backed background ingestion and indexing worker
 - Retry scheduling, worker leases, and stale-job recovery
 - Document, chunk, and ingestion-job inspection endpoints
-
-A minimal web interface remains intentionally deferred to its corresponding
-phase.
+- React operator interface for knowledge and chat workflows
+- Optional bearer-token authentication
+- Request IDs, structured logging, rate limits, and security headers
+- Liveness, database readiness, and Prometheus-compatible metrics
+- Production Docker image, Compose stack, and CI verification
 
 ## Setup
 
@@ -76,6 +78,19 @@ Set-Location ..
 FastAPI serves the built interface at `http://127.0.0.1:8001/`. For frontend
 development with hot reload, run `npm run dev` in `frontend`; Vite proxies API
 requests from port 5174 to the FastAPI server on port 8001.
+
+## Production deployment
+
+The production Compose stack builds the React interface and FastAPI service into
+one non-root application image:
+
+```powershell
+docker compose up -d --build
+```
+
+Production mode requires `GEMINI_API_KEY`, a strong `API_AUTH_TOKEN`, and
+explicit allowed hosts. See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for
+configuration, reverse-proxy, backup, monitoring, and rollback guidance.
 
 ## Upload a document
 

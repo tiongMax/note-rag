@@ -3,18 +3,64 @@ services:
     image: pgvector/pgvector:pg16
     container_name: note-rag-postgres
     environment:
-      POSTGRES_USER: langchain
-      POSTGRES_PASSWORD: langchain
-      POSTGRES_DB: langchain
+      POSTGRES_USER: ${POSTGRES_USER:-langchain}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-langchain}
+      POSTGRES_DB: ${POSTGRES_DB:-langchain}
     ports:
       - "6024:5432"
     volumes:
       - pgvector_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U langchain -d langchain"]
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-langchain} -d ${POSTGRES_DB:-langchain}",
+        ]
       interval: 5s
       timeout: 5s
       retries: 10
 
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: note-rag-app
+    init: true
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      APP_ENVIRONMENT: production
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-langchain}:${POSTGRES_PASSWORD:-langchain}@postgres:5432/${POSTGRES_DB:-langchain}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      API_AUTH_TOKEN: ${API_AUTH_TOKEN:-}
+      ALLOWED_HOSTS: ${ALLOWED_HOSTS:-localhost,127.0.0.1}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-}
+      UPLOAD_STORAGE_PATH: /app/data/uploads
+      FRONTEND_DIST_PATH: /app/frontend/dist
+      JSON_LOGS: ${JSON_LOGS:-true}
+      METRICS_ENABLED: ${METRICS_ENABLED:-true}
+      FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-127.0.0.1}
+    ports:
+      - "${APP_PORT:-8001}:8001"
+    volumes:
+      - note_rag_uploads:/app/data/uploads
+    tmpfs:
+      - /tmp
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/health/ready', timeout=3)",
+        ]
+      interval: 20s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+
 volumes:
   pgvector_data:
+  note_rag_uploads:

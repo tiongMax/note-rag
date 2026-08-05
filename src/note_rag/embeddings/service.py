@@ -90,7 +90,7 @@ class IndexingService:
                 document.indexed_at = datetime.now(UTC)
                 if job is not None:
                     IngestionJobRepository(session).set_status(
-                        job, IngestionJobStatus.COMPLETED, progress=100
+                        job, IngestionJobStatus.INDEXING, progress=95
                     )
                 return self._result(document_id, document, indexed)
             except Exception as error:

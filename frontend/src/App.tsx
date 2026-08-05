@@ -1,12 +1,13 @@
 import {
   Database,
+  KeyRound,
   Menu,
   MessageSquare,
   PanelLeftClose,
   Sparkles,
 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
-import { api } from "./api";
+import { api, setApiToken } from "./api";
 import { ChatView } from "./ChatView";
 import { DocumentsView } from "./DocumentsView";
 import type { Conversation, Document } from "./types";
@@ -38,6 +39,7 @@ function App() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [toast, setToast] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [authRequired, setAuthRequired] = useState(false);
 
   const refreshDocuments = useCallback(async () => {
     try {
@@ -66,6 +68,19 @@ function App() {
       refreshConversations(),
     ]);
   }, [refreshConversations, refreshDocuments]);
+
+  useEffect(() => {
+    const requireAuthentication = () => setAuthRequired(true);
+    window.addEventListener(
+      "note-rag:unauthorized",
+      requireAuthentication,
+    );
+    return () =>
+      window.removeEventListener(
+        "note-rag:unauthorized",
+        requireAuthentication,
+      );
+  }, []);
 
   useEffect(() => {
     if (!toast) return;
@@ -148,6 +163,79 @@ function App() {
           {toast}
         </div>
       )}
+      {authRequired && (
+        <AuthenticationGate
+          onSubmit={async (token) => {
+            setApiToken(token);
+            try {
+              const [nextDocuments, nextConversations] = await Promise.all([
+                api.documents(),
+                api.conversations(),
+              ]);
+              setDocuments(nextDocuments);
+              setConversations(nextConversations);
+              setOnline(true);
+              setAuthRequired(false);
+            } catch {
+              setAuthRequired(true);
+              throw new Error("Authentication failed");
+            }
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function AuthenticationGate({
+  onSubmit,
+}: {
+  onSubmit: (token: string) => Promise<void>;
+}) {
+  const [token, setToken] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  return (
+    <div className="auth-overlay">
+      <form
+        className="auth-card"
+        onSubmit={async (event) => {
+          event.preventDefault();
+          if (!token.trim()) return;
+          setSubmitting(true);
+          try {
+            await onSubmit(token);
+          } catch {
+            // The gate stays open so the operator can retry.
+          } finally {
+            setSubmitting(false);
+          }
+        }}
+      >
+        <span className="auth-icon">
+          <KeyRound size={22} />
+        </span>
+        <span className="eyebrow">Protected workspace</span>
+        <h2>Enter your API token</h2>
+        <p>
+          This deployment requires the token configured as{" "}
+          <code>API_AUTH_TOKEN</code>.
+        </p>
+        <input
+          type="password"
+          value={token}
+          onChange={(event) => setToken(event.target.value)}
+          placeholder="Bearer token"
+          autoFocus
+          autoComplete="current-password"
+        />
+        <button
+          className="primary-button"
+          type="submit"
+          disabled={!token.trim() || submitting}
+        >
+          {submitting ? "Connecting…" : "Unlock workspace"}
+        </button>
+      </form>
     </div>
   );
 }

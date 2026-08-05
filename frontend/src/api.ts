@@ -9,26 +9,71 @@ import type {
 } from "./types";
 
 const API = "/api/v1";
+const TOKEN_KEY = "note-rag-api-token";
+
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly code?: string,
+    readonly requestId?: string,
+  ) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
+
+export function setApiToken(token: string) {
+  const normalized = token.trim();
+  if (normalized) {
+    sessionStorage.setItem(TOKEN_KEY, normalized);
+  } else {
+    sessionStorage.removeItem(TOKEN_KEY);
+  }
+}
+
+function authenticatedHeaders(headers?: HeadersInit) {
+  const resolved = new Headers(headers);
+  const token = sessionStorage.getItem(TOKEN_KEY);
+  if (token) resolved.set("Authorization", `Bearer ${token}`);
+  return resolved;
+}
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${API}${path}`, init);
+  const response = await fetch(`${API}${path}`, {
+    ...init,
+    headers: authenticatedHeaders(init?.headers),
+  });
   if (!response.ok) {
     let detail = `Request failed (${response.status})`;
+    let code: string | undefined;
+    let requestId: string | undefined;
     try {
       const body = (await response.json()) as {
         detail?: string;
         error_message?: string | null;
         indexing_error?: string | null;
+        error?: {
+          code?: string;
+          message?: string;
+          request_id?: string;
+        };
       };
       detail =
+        body.error?.message ??
         body.detail ??
         body.indexing_error ??
         body.error_message ??
         detail;
+      code = body.error?.code;
+      requestId = body.error?.request_id;
     } catch {
       // The fallback includes the useful HTTP status.
     }
-    throw new Error(detail);
+    if (response.status === 401) {
+      window.dispatchEvent(new Event("note-rag:unauthorized"));
+    }
+    throw new ApiError(detail, response.status, code, requestId);
   }
   if (response.status === 204) return undefined as T;
   return (await response.json()) as T;
@@ -69,7 +114,7 @@ interface ChatOptions {
 export async function streamChat(options: ChatOptions): Promise<void> {
   const response = await fetch(`${API}/chat/stream`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: authenticatedHeaders({ "Content-Type": "application/json" }),
     body: JSON.stringify({
       query: options.query,
       conversation_id: options.conversationId,
@@ -77,7 +122,13 @@ export async function streamChat(options: ChatOptions): Promise<void> {
     }),
   });
   if (!response.ok || !response.body) {
-    throw new Error(`Chat request failed (${response.status})`);
+    if (response.status === 401) {
+      window.dispatchEvent(new Event("note-rag:unauthorized"));
+    }
+    throw new ApiError(
+      `Chat request failed (${response.status})`,
+      response.status,
+    );
   }
 
   const reader = response.body.getReader();
