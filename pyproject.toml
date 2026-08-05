@@ -5,6 +5,7 @@ description = "A small, phase-by-phase RAG implementation inspired by RAGFlow"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "alembic>=1.16,<2",
     "fastapi>=0.116,<1",
     "langchain==1.3.13",
     "langchain-community==0.4.2",
