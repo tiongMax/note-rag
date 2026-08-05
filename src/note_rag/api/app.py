@@ -13,14 +13,16 @@ from note_rag.api.models import (
     IndexingResponse,
     IngestionJobResponse,
     IngestionResponse,
+    SearchRequest,
+    SearchResponse,
     StoredChunkResponse,
 )
 from note_rag.api.settings import ApiSettings, api_settings
 from note_rag.chunking import RegexTokenCounter, TokenChunker
 from note_rag.embeddings import (
-    EmbeddingProvider,
     GeminiEmbeddingProvider,
     IndexingService,
+    QueryEmbeddingProvider,
 )
 from note_rag.ingest import IngestionPipeline, LocalFileStorage, ParserRegistry
 from note_rag.ingest.errors import UnsupportedDocumentTypeError
@@ -30,6 +32,7 @@ from note_rag.persistence import (
     DocumentRepository,
     IngestionJobRepository,
 )
+from note_rag.retrieval import RetrievalService, SearchFilters
 
 
 def create_app(
@@ -37,7 +40,7 @@ def create_app(
     *,
     database: Database | None = None,
     storage: LocalFileStorage | None = None,
-    embedding_provider: EmbeddingProvider | None = None,
+    embedding_provider: QueryEmbeddingProvider | None = None,
 ) -> FastAPI:
     """Build an application without starting network services."""
 
@@ -57,6 +60,12 @@ def create_app(
         resolved_embedding_provider,
         batch_size=app_settings.embedding_batch_size,
     )
+    retrieval_service = RetrievalService(
+        resolved_database,
+        resolved_embedding_provider,
+        candidate_multiplier=app_settings.retrieval_candidate_multiplier,
+        rrf_k=app_settings.retrieval_rrf_k,
+    )
     pipeline = IngestionPipeline(
         resolved_database,
         resolved_storage,
@@ -69,7 +78,7 @@ def create_app(
     app = FastAPI(
         title=app_settings.app_name,
         version="0.1.0",
-        description="Phase 3: persistent document ingestion and chunking.",
+        description="A compact ingestion, indexing, and hybrid retrieval service.",
     )
     app.state.database = resolved_database
     token_counter = RegexTokenCounter()
@@ -243,6 +252,33 @@ def create_app(
             embedding_model=result.embedding_model,
             error_message=result.error_message,
         )
+
+    @app.post(
+        "/api/v1/retrieval/search",
+        response_model=SearchResponse,
+        tags=["retrieval"],
+    )
+    async def search_chunks(request: SearchRequest) -> SearchResponse:
+        filters = SearchFilters(
+            document_ids=tuple(request.filters.document_ids),
+            filenames=tuple(request.filters.filenames),
+            media_types=tuple(request.filters.media_types),
+            source_metadata=request.filters.source_metadata,
+        )
+        try:
+            result = await run_in_threadpool(
+                retrieval_service.search,
+                request.query,
+                mode=request.mode,
+                top_k=request.top_k,
+                vector_weight=request.vector_weight,
+                filters=filters,
+            )
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        except RuntimeError as error:
+            raise HTTPException(status_code=503, detail=str(error)) from error
+        return SearchResponse.model_validate(result, from_attributes=True)
 
     return app
 

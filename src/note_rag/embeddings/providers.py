@@ -13,6 +13,10 @@ class EmbeddingProvider(Protocol):
     def embed(self, texts: list[str]) -> list[list[float]]: ...
 
 
+class QueryEmbeddingProvider(EmbeddingProvider, Protocol):
+    def embed_query(self, query: str) -> list[float]: ...
+
+
 class GeminiEmbeddingProvider:
     """Gemini Embedding 2 provider with one vector per input document."""
 
@@ -36,6 +40,24 @@ class GeminiEmbeddingProvider:
         return self._expected_dimension
 
     def embed(self, texts: list[str]) -> list[list[float]]:
+        return self._embed(
+            texts,
+            instruction="Represent this document for retrieval:",
+        )
+
+    def embed_query(self, query: str) -> list[float]:
+        vectors = self._embed(
+            [query],
+            instruction="Represent this query for retrieving relevant documents:",
+        )
+        return vectors[0]
+
+    def _embed(
+        self,
+        texts: list[str],
+        *,
+        instruction: str,
+    ) -> list[list[float]]:
         if not texts:
             return []
         if not self._api_key:
@@ -49,7 +71,7 @@ class GeminiEmbeddingProvider:
                 role="user",
                 parts=[
                     types.Part.from_text(
-                        text=f"Represent this document for retrieval:\n{text}"
+                        text=f"{instruction}\n{text}"
                     )
                 ],
             )

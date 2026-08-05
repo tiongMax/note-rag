@@ -12,6 +12,7 @@ from note_rag.persistence import (
     IndexingStatus,
     IngestionJobStatus,
 )
+from note_rag.retrieval import SearchMode
 
 
 class ChunkTextRequest(BaseModel):
@@ -94,3 +95,39 @@ class IndexingResponse(BaseModel):
     indexed_chunks: int
     embedding_model: str
     error_message: str | None = None
+
+
+class SearchFiltersRequest(BaseModel):
+    document_ids: list[uuid.UUID] = Field(default_factory=list)
+    filenames: list[str] = Field(default_factory=list)
+    media_types: list[str] = Field(default_factory=list)
+    source_metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class SearchRequest(BaseModel):
+    query: str = Field(min_length=1)
+    mode: SearchMode = SearchMode.HYBRID
+    top_k: int = Field(default=10, ge=1, le=100)
+    vector_weight: float = Field(default=0.7, ge=0.0, le=1.0)
+    filters: SearchFiltersRequest = Field(default_factory=SearchFiltersRequest)
+
+
+class SearchHitResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    chunk_id: uuid.UUID
+    document_id: uuid.UUID
+    filename: str
+    media_type: str
+    position: int
+    text: str
+    source_metadata: dict[str, Any]
+    score: float
+    vector_score: float | None
+    keyword_score: float | None
+
+
+class SearchResponse(BaseModel):
+    query: str
+    mode: SearchMode
+    hits: list[SearchHitResponse]

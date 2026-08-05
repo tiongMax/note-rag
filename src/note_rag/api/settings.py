@@ -16,6 +16,8 @@ class ApiSettings:
     embedding_model: str = "gemini-embedding-2"
     embedding_dimension: int = 768
     embedding_batch_size: int = 32
+    retrieval_candidate_multiplier: int = 4
+    retrieval_rrf_k: int = 60
     gemini_api_key: str = ""
 
     @classmethod
@@ -35,6 +37,10 @@ class ApiSettings:
             ),
             embedding_dimension=int(os.getenv("EMBEDDING_DIMENSION", "768")),
             embedding_batch_size=int(os.getenv("EMBEDDING_BATCH_SIZE", "32")),
+            retrieval_candidate_multiplier=int(
+                os.getenv("RETRIEVAL_CANDIDATE_MULTIPLIER", "4")
+            ),
+            retrieval_rrf_k=int(os.getenv("RETRIEVAL_RRF_K", "60")),
             gemini_api_key=(
                 os.getenv("GEMINI_API_KEY")
                 or os.getenv("GOOGLE_API_KEY")
