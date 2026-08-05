@@ -3,7 +3,7 @@
 import uuid
 from datetime import datetime
 from enum import StrEnum
-from typing import Any
+from typing import Any, cast
 
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
@@ -15,10 +15,13 @@ from sqlalchemy import (
     Index,
     Integer,
     String,
+    Table,
     Text,
     UniqueConstraint,
     func,
+    literal_column,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -136,6 +139,11 @@ class ChunkRecord(TimestampMixin, Base):
             postgresql_using="hnsw",
             postgresql_ops={"embedding": "vector_cosine_ops"},
         ),
+        Index(
+            "ix_chunks_source_metadata_gin",
+            "source_metadata",
+            postgresql_using="gin",
+        ).ddl_if(dialect="postgresql"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
@@ -152,7 +160,7 @@ class ChunkRecord(TimestampMixin, Base):
     char_start: Mapped[int] = mapped_column(Integer, nullable=False)
     char_end: Mapped[int] = mapped_column(Integer, nullable=False)
     source_metadata: Mapped[dict[str, Any]] = mapped_column(
-        JSON,
+        JSON().with_variant(JSONB, "postgresql"),
         default=dict,
         nullable=False,
     )
@@ -161,6 +169,19 @@ class ChunkRecord(TimestampMixin, Base):
     embedded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     document: Mapped[Document] = relationship(back_populates="chunks")
+
+
+chunk_text_fts_index = Index(
+    "ix_chunks_text_fts",
+    func.to_tsvector(
+        literal_column("'english'::regconfig"),
+        ChunkRecord.text,
+    ),
+    postgresql_using="gin",
+)
+cast(Table, ChunkRecord.__table__).append_constraint(
+    chunk_text_fts_index.ddl_if(dialect="postgresql")
+)
 
 
 class IngestionJob(TimestampMixin, Base):

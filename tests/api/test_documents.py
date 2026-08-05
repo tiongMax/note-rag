@@ -15,6 +15,9 @@ class FakeEmbeddingProvider:
     def embed(self, texts: list[str]) -> list[list[float]]:
         return [[1.0, *([0.0] * 767)] for _ in texts]
 
+    def embed_query(self, query: str) -> list[float]:
+        return [1.0, *([0.0] * 767)]
+
 
 def build_client(
     database: Database,
@@ -127,3 +130,31 @@ def test_failed_parse_is_inspectable(
     document = client.get(f"/api/v1/documents/{result['document_id']}")
     assert document.status_code == 200
     assert document.json()["status"] == "failed"
+
+
+def test_searches_uploaded_chunks(database: Database, tmp_path: Path) -> None:
+    client = build_client(database, tmp_path)
+    upload = client.post(
+        "/api/v1/documents",
+        files={
+            "file": (
+                "retrieval.txt",
+                b"apples grow in orchards",
+                "text/plain",
+            )
+        },
+    )
+
+    search = client.post(
+        "/api/v1/retrieval/search",
+        json={
+            "query": "apples",
+            "mode": "hybrid",
+            "filters": {"filenames": ["retrieval.txt"]},
+        },
+    )
+
+    assert upload.status_code == 201
+    assert search.status_code == 200
+    assert search.json()["hits"][0]["filename"] == "retrieval.txt"
+    assert search.json()["hits"][0]["keyword_score"] is not None

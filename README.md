@@ -15,10 +15,13 @@ responsibilities while deliberately simplifying its scale.
 - Synchronous ingestion with persisted progress and failures
 - Batched Gemini embeddings stored in pgvector
 - Document indexing status and re-indexing
+- Vector and PostgreSQL full-text retrieval
+- Document and chunk metadata filters
+- Weighted reciprocal-rank hybrid fusion
 - Document, chunk, and ingestion-job inspection endpoints
 
-Retrieval, reranking, and generation are intentionally absent until their
-corresponding phases.
+Reranking and generation are intentionally absent until their corresponding
+phases.
 
 ## Setup
 
@@ -53,6 +56,30 @@ Invoke-RestMethod `
 ```
 
 Supported extensions are `.txt`, `.md`, `.markdown`, and `.pdf`.
+
+## Search indexed chunks
+
+```powershell
+$body = @{
+  query = "How does retrieval work?"
+  mode = "hybrid"
+  top_k = 10
+  vector_weight = 0.7
+  filters = @{
+    filenames = @("example.pdf")
+    source_metadata = @{ page = 2 }
+  }
+} | ConvertTo-Json -Depth 4
+
+Invoke-RestMethod `
+  -Method Post `
+  -Uri http://127.0.0.1:8000/api/v1/retrieval/search `
+  -ContentType "application/json" `
+  -Body $body
+```
+
+Search modes are `vector`, `keyword`, and `hybrid`. Filters support document
+IDs, filenames, media types, and exact source-metadata fields.
 
 ## Tests
 
