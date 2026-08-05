@@ -5,6 +5,7 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Any
 
+from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
     JSON,
     CheckConstraint,
@@ -55,6 +56,13 @@ class IngestionJobStatus(StrEnum):
     FAILED = "failed"
 
 
+class IndexingStatus(StrEnum):
+    PENDING = "pending"
+    INDEXING = "indexing"
+    INDEXED = "indexed"
+    FAILED = "failed"
+
+
 class Document(TimestampMixin, Base):
     __tablename__ = "documents"
     __table_args__ = (
@@ -81,6 +89,15 @@ class Document(TimestampMixin, Base):
     token_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     chunk_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     error_message: Mapped[str | None] = mapped_column(Text)
+    indexing_status: Mapped[IndexingStatus] = mapped_column(
+        Enum(IndexingStatus, name="indexing_status"),
+        default=IndexingStatus.PENDING,
+        nullable=False,
+        index=True,
+    )
+    embedding_model: Mapped[str | None] = mapped_column(String(255))
+    indexed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    indexing_error: Mapped[str | None] = mapped_column(Text)
 
     chunks: Mapped[list["ChunkRecord"]] = relationship(
         back_populates="document",
@@ -113,6 +130,12 @@ class ChunkRecord(TimestampMixin, Base):
             name="uq_chunks_document_position",
         ),
         Index("ix_chunks_document_token_start", "document_id", "token_start"),
+        Index(
+            "ix_chunks_embedding_hnsw",
+            "embedding",
+            postgresql_using="hnsw",
+            postgresql_ops={"embedding": "vector_cosine_ops"},
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
@@ -133,6 +156,9 @@ class ChunkRecord(TimestampMixin, Base):
         default=dict,
         nullable=False,
     )
+    embedding: Mapped[list[float] | None] = mapped_column(Vector(768))
+    embedding_model: Mapped[str | None] = mapped_column(String(255))
+    embedded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     document: Mapped[Document] = relationship(back_populates="chunks")
 
