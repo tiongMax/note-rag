@@ -13,10 +13,12 @@ responsibilities while deliberately simplifying its scale.
 - Content-addressed local file storage
 - SHA-256 duplicate detection
 - Synchronous ingestion with persisted progress and failures
+- Batched Gemini embeddings stored in pgvector
+- Document indexing status and re-indexing
 - Document, chunk, and ingestion-job inspection endpoints
 
-Embedding, vector indexing, retrieval, reranking, and generation are intentionally
-absent until their corresponding phases.
+Retrieval, reranking, and generation are intentionally absent until their
+corresponding phases.
 
 ## Setup
 

@@ -6,6 +6,7 @@ from note_rag.persistence.models import (
     ChunkRecord,
     Document,
     DocumentStatus,
+    IndexingStatus,
     IngestionJob,
     IngestionJobStatus,
 )
@@ -26,4 +27,5 @@ __all__ = [
     "IngestionJob",
     "IngestionJobRepository",
     "IngestionJobStatus",
+    "IndexingStatus",
 ]

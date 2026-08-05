@@ -8,6 +8,14 @@ from note_rag.ingest import LocalFileStorage
 from note_rag.persistence import Database
 
 
+class FakeEmbeddingProvider:
+    model_name = "fake-768"
+    dimension = 768
+
+    def embed(self, texts: list[str]) -> list[list[float]]:
+        return [[1.0, *([0.0] * 767)] for _ in texts]
+
+
 def build_client(
     database: Database,
     tmp_path: Path,
@@ -25,6 +33,7 @@ def build_client(
             settings,
             database=database,
             storage=LocalFileStorage(tmp_path),
+            embedding_provider=FakeEmbeddingProvider(),
         )
     )
 
@@ -43,6 +52,7 @@ def test_upload_and_inspect_document(
     assert upload.status_code == 201
     result = upload.json()
     assert result["status"] == "ready"
+    assert result["indexing_status"] == "indexed"
     assert result["chunk_count"] == 2
 
     document = client.get(f"/api/v1/documents/{result['document_id']}")
@@ -57,6 +67,12 @@ def test_upload_and_inspect_document(
     ]
     assert job.json()["status"] == "completed"
     assert job.json()["progress"] == 100
+
+    reindex = client.post(
+        f"/api/v1/documents/{result['document_id']}/index"
+    )
+    assert reindex.status_code == 200
+    assert reindex.json()["status"] == "indexed"
 
 
 def test_duplicate_upload_returns_existing_document(
