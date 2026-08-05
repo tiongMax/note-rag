@@ -1,7 +1,8 @@
 """Repository layer for persistence operations."""
 
 import uuid
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -27,6 +28,10 @@ class DocumentRepository:
     def get(self, document_id: uuid.UUID) -> Document | None:
         return self.session.get(Document, document_id)
 
+    def get_by_content_hash(self, content_hash: str) -> Document | None:
+        statement = select(Document).where(Document.content_hash == content_hash)
+        return self.session.scalar(statement)
+
     def list(self, *, offset: int = 0, limit: int = 100) -> list[Document]:
         statement = (
             select(Document)
@@ -49,25 +54,29 @@ class ChunkRepository:
         self,
         document: Document,
         chunks: Iterable[Chunk],
+        *,
+        metadata_for_chunk: Callable[[Chunk], dict[str, Any]] | None = None,
     ) -> list[ChunkRecord]:
-        records = [
-            ChunkRecord(
-                document=document,
-                position=chunk.metadata.index,
-                text=chunk.text,
-                token_count=chunk.metadata.token_count,
-                token_start=chunk.metadata.token_start,
-                token_end=chunk.metadata.token_end,
-                char_start=chunk.metadata.char_start,
-                char_end=chunk.metadata.char_end,
-                source_metadata=(
-                    {"source_id": chunk.metadata.source_id}
-                    if chunk.metadata.source_id is not None
-                    else {}
-                ),
+        records = []
+        for chunk in chunks:
+            source_metadata: dict[str, Any] = {}
+            if chunk.metadata.source_id is not None:
+                source_metadata["source_id"] = chunk.metadata.source_id
+            if metadata_for_chunk is not None:
+                source_metadata.update(metadata_for_chunk(chunk))
+            records.append(
+                ChunkRecord(
+                    document=document,
+                    position=chunk.metadata.index,
+                    text=chunk.text,
+                    token_count=chunk.metadata.token_count,
+                    token_start=chunk.metadata.token_start,
+                    token_end=chunk.metadata.token_end,
+                    char_start=chunk.metadata.char_start,
+                    char_end=chunk.metadata.char_end,
+                    source_metadata=source_metadata,
+                )
             )
-            for chunk in chunks
-        ]
         self.session.add_all(records)
         document.chunk_count = len(records)
         document.token_count = max(

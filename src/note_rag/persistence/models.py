@@ -60,6 +60,11 @@ class Document(TimestampMixin, Base):
     __table_args__ = (
         CheckConstraint("token_count >= 0", name="ck_documents_token_count"),
         CheckConstraint("chunk_count >= 0", name="ck_documents_chunk_count"),
+        Index(
+            "uq_documents_content_hash",
+            "content_hash",
+            unique=True,
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
