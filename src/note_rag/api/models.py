@@ -86,6 +86,9 @@ class IngestionJobResponse(BaseModel):
     error_message: str | None
     started_at: datetime | None
     finished_at: datetime | None
+    next_attempt_at: datetime | None
+    locked_at: datetime | None
+    worker_id: str | None
     created_at: datetime
     updated_at: datetime
 

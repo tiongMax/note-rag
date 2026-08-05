@@ -1,4 +1,4 @@
-"""Synchronous document ingestion for Phase 3."""
+"""Queued and synchronous document ingestion."""
 
 from note_rag.ingest.parsers import (
     MarkdownParser,
@@ -9,10 +9,12 @@ from note_rag.ingest.parsers import (
 )
 from note_rag.ingest.pipeline import IngestionPipeline, IngestionResult
 from note_rag.ingest.storage import LocalFileStorage, StoredFile
+from note_rag.ingest.worker import IngestionWorker
 
 __all__ = [
     "IngestionPipeline",
     "IngestionResult",
+    "IngestionWorker",
     "LocalFileStorage",
     "MarkdownParser",
     "ParsedDocument",

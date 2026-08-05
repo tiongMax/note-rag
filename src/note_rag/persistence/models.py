@@ -198,6 +198,11 @@ class IngestionJob(TimestampMixin, Base):
         ),
         CheckConstraint("attempts >= 0", name="ck_ingestion_jobs_attempts"),
         Index("ix_ingestion_jobs_status_created", "status", "created_at"),
+        Index(
+            "ix_ingestion_jobs_status_next_attempt",
+            "status",
+            "next_attempt_at",
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
@@ -216,6 +221,11 @@ class IngestionJob(TimestampMixin, Base):
     error_message: Mapped[str | None] = mapped_column(Text)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    next_attempt_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
+    locked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    worker_id: Mapped[str | None] = mapped_column(String(64))
 
     document: Mapped[Document] = relationship(back_populates="ingestion_jobs")
 

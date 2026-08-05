@@ -1,4 +1,4 @@
-"""Synchronous parse-and-chunk ingestion pipeline."""
+"""Queueable parse-and-chunk ingestion pipeline."""
 
 import hashlib
 import uuid
@@ -52,6 +52,49 @@ class IngestionPipeline:
         media_type: str,
         content: bytes,
     ) -> IngestionResult:
+        """Compatibility wrapper that processes one upload synchronously."""
+
+        queued = self.enqueue(
+            filename=filename,
+            media_type=media_type,
+            content=content,
+        )
+        if queued.duplicate or queued.job_id is None:
+            return queued
+        with self.database.session() as session:
+            job = IngestionJobRepository(session).get(queued.job_id)
+            if job is None:
+                raise LookupError("ingestion job not found")
+            job.attempts += 1
+            job.started_at = datetime.now(UTC)
+        try:
+            return self.process_job(queued.job_id, complete_job=True)
+        except Exception as error:
+            message = str(error) or error.__class__.__name__
+            with self.database.session() as session:
+                job = IngestionJobRepository(session).get(queued.job_id)
+                document = DocumentRepository(session).get(queued.document_id)
+                if job is None or document is None:
+                    raise LookupError("queued ingestion state was not found") from error
+                document.status = DocumentStatus.FAILED
+                document.error_message = message
+                IngestionJobRepository(session).fail(
+                    job,
+                    error_message=message,
+                )
+                return self._result(
+                    document,
+                    job_id=job.id,
+                    duplicate=False,
+                )
+
+    def enqueue(
+        self,
+        *,
+        filename: str,
+        media_type: str,
+        content: bytes,
+    ) -> IngestionResult:
         content_hash = hashlib.sha256(content).hexdigest()
         with self.database.session() as session:
             documents = DocumentRepository(session)
@@ -71,61 +114,75 @@ class IngestionPipeline:
                     content_hash=content_hash,
                 )
             )
+            stored_file = self.storage.save(
+                content,
+                filename=filename,
+                content_hash=content_hash,
+            )
+            document.storage_uri = stored_file.uri
             job_repository = IngestionJobRepository(session)
             job = job_repository.add(
                 IngestionJob(
                     document=document,
-                    attempts=1,
-                    started_at=datetime.now(UTC),
+                    attempts=0,
                 )
             )
+            return self._result(document, job_id=job.id, duplicate=False)
 
-            try:
-                job_repository.set_status(
+    def process_job(
+        self,
+        job_id: uuid.UUID,
+        *,
+        complete_job: bool = False,
+    ) -> IngestionResult:
+        with self.database.session() as session:
+            jobs = IngestionJobRepository(session)
+            job = jobs.get(job_id)
+            if job is None:
+                raise LookupError("ingestion job not found")
+            document = DocumentRepository(session).get(job.document_id)
+            if document is None:
+                raise LookupError("document not found")
+
+            chunks = ChunkRepository(session).list_for_document(document.id)
+            if not chunks:
+                jobs.set_status(
                     job,
                     IngestionJobStatus.PARSING,
                     progress=10,
                 )
-                stored_file = self.storage.save(
-                    content,
-                    filename=filename,
-                    content_hash=content_hash,
-                )
-                document.storage_uri = stored_file.uri
-                parsed = self.parser_registry.get(filename).parse(content)
-
-                job_repository.set_status(
+                if document.storage_uri is None:
+                    raise RuntimeError("document has no stored source file")
+                content = self.storage.read(document.storage_uri)
+                parsed = self.parser_registry.get(document.filename).parse(content)
+                jobs.set_status(
                     job,
                     IngestionJobStatus.CHUNKING,
-                    progress=50,
+                    progress=40,
                 )
-                chunks = self.chunker.chunk(parsed.text, source_id=filename)
+                generated = self.chunker.chunk(
+                    parsed.text,
+                    source_id=document.filename,
+                )
                 ChunkRepository(session).add_from_chunks(
                     document,
-                    chunks,
+                    generated,
                     metadata_for_chunk=lambda chunk: parsed.metadata_for_range(
                         chunk.metadata.char_start,
                         chunk.metadata.char_end,
                     ),
                 )
                 document.status = DocumentStatus.READY
-                job.finished_at = datetime.now(UTC)
-                job_repository.set_status(
-                    job,
-                    IngestionJobStatus.COMPLETED,
-                    progress=100,
-                )
-            except Exception as error:
-                message = str(error) or error.__class__.__name__
-                document.status = DocumentStatus.FAILED
-                document.error_message = message
-                job.finished_at = datetime.now(UTC)
-                job_repository.set_status(
-                    job,
-                    IngestionJobStatus.FAILED,
-                    error_message=message,
-                )
+                document.error_message = None
 
+            if complete_job:
+                jobs.complete_claim(job)
+            else:
+                jobs.set_status(
+                    job,
+                    IngestionJobStatus.EMBEDDING,
+                    progress=60,
+                )
             return self._result(document, job_id=job.id, duplicate=False)
 
     @staticmethod
