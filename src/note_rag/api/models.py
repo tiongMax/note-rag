@@ -7,7 +7,11 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
 
 from note_rag.chunking.models import Chunk
-from note_rag.persistence import DocumentStatus, IngestionJobStatus
+from note_rag.persistence import (
+    DocumentStatus,
+    IndexingStatus,
+    IngestionJobStatus,
+)
 
 
 class ChunkTextRequest(BaseModel):
@@ -30,6 +34,8 @@ class IngestionResponse(BaseModel):
     chunk_count: int
     token_count: int
     error_message: str | None = None
+    indexing_status: IndexingStatus
+    indexing_error: str | None = None
 
 
 class DocumentResponse(BaseModel):
@@ -44,6 +50,10 @@ class DocumentResponse(BaseModel):
     token_count: int
     chunk_count: int
     error_message: str | None
+    indexing_status: IndexingStatus
+    embedding_model: str | None
+    indexed_at: datetime | None
+    indexing_error: str | None
     created_at: datetime
     updated_at: datetime
 
@@ -76,3 +86,11 @@ class IngestionJobResponse(BaseModel):
     finished_at: datetime | None
     created_at: datetime
     updated_at: datetime
+
+
+class IndexingResponse(BaseModel):
+    document_id: uuid.UUID
+    status: IndexingStatus
+    indexed_chunks: int
+    embedding_model: str
+    error_message: str | None = None

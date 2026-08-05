@@ -10,12 +10,18 @@ from note_rag.api.models import (
     ChunkTextRequest,
     ChunkTextResponse,
     DocumentResponse,
+    IndexingResponse,
     IngestionJobResponse,
     IngestionResponse,
     StoredChunkResponse,
 )
 from note_rag.api.settings import ApiSettings, api_settings
 from note_rag.chunking import RegexTokenCounter, TokenChunker
+from note_rag.embeddings import (
+    EmbeddingProvider,
+    GeminiEmbeddingProvider,
+    IndexingService,
+)
 from note_rag.ingest import IngestionPipeline, LocalFileStorage, ParserRegistry
 from note_rag.ingest.errors import UnsupportedDocumentTypeError
 from note_rag.persistence import (
@@ -31,12 +37,26 @@ def create_app(
     *,
     database: Database | None = None,
     storage: LocalFileStorage | None = None,
+    embedding_provider: EmbeddingProvider | None = None,
 ) -> FastAPI:
     """Build an application without starting network services."""
 
     resolved_database = database or Database()
     resolved_storage = storage or LocalFileStorage(app_settings.storage_path)
     parser_registry = ParserRegistry()
+    resolved_embedding_provider = (
+        embedding_provider
+        or GeminiEmbeddingProvider(
+            app_settings.embedding_model,
+            api_key=app_settings.gemini_api_key,
+            expected_dimension=app_settings.embedding_dimension,
+        )
+    )
+    indexing_service = IndexingService(
+        resolved_database,
+        resolved_embedding_provider,
+        batch_size=app_settings.embedding_batch_size,
+    )
     pipeline = IngestionPipeline(
         resolved_database,
         resolved_storage,
@@ -124,6 +144,22 @@ def create_app(
             response.status_code = 200
         elif result.error_message is not None:
             response.status_code = 422
+        indexing_result = None
+        if result.status.value == "ready":
+            indexing_result = await run_in_threadpool(
+                indexing_service.index_document,
+                result.document_id,
+                job_id=result.job_id,
+            )
+            if indexing_result.error_message is not None:
+                response.status_code = 422
+        with resolved_database.session() as session:
+            persisted_document = DocumentRepository(session).get(result.document_id)
+            if persisted_document is None:
+                raise HTTPException(
+                    status_code=500,
+                    detail="document was not persisted",
+                )
         return IngestionResponse(
             document_id=result.document_id,
             job_id=result.job_id,
@@ -132,6 +168,10 @@ def create_app(
             chunk_count=result.chunk_count,
             token_count=result.token_count,
             error_message=result.error_message,
+            indexing_status=persisted_document.indexing_status,
+            indexing_error=(
+                indexing_result.error_message if indexing_result is not None else None
+            ),
         )
 
     @app.get(
@@ -181,6 +221,28 @@ def create_app(
             if job is None:
                 raise HTTPException(status_code=404, detail="ingestion job not found")
             return IngestionJobResponse.model_validate(job)
+
+    @app.post(
+        "/api/v1/documents/{document_id}/index",
+        response_model=IndexingResponse,
+        tags=["documents"],
+    )
+    async def reindex_document(document_id: uuid.UUID) -> IndexingResponse:
+        try:
+            result = await run_in_threadpool(
+                indexing_service.index_document,
+                document_id,
+                force=True,
+            )
+        except LookupError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+        return IndexingResponse(
+            document_id=result.document_id,
+            status=result.status,
+            indexed_chunks=result.indexed_chunks,
+            embedding_model=result.embedding_model,
+            error_message=result.error_message,
+        )
 
     return app
 
