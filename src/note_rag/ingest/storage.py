@@ -3,6 +3,7 @@
 import os
 import uuid
 from dataclasses import dataclass
+from os import name as os_name
 from pathlib import Path
 from urllib.parse import unquote, urlparse
 
@@ -37,6 +38,25 @@ class LocalFileStorage:
                 temporary_path.unlink(missing_ok=True)
         return StoredFile(uri=path.as_uri(), path=path)
 
+    def delete(self, uri: str) -> None:
+        """Delete a stored file while refusing paths outside the storage root."""
+
+        parsed = urlparse(uri)
+        if parsed.scheme != "file":
+            raise ValueError("only local file storage URIs can be deleted")
+        raw_path = unquote(parsed.path)
+        if os_name == "nt" and raw_path.startswith("/"):
+            raw_path = raw_path[1:]
+        path = Path(raw_path).resolve()
+        if not path.is_relative_to(self.root):
+            raise ValueError("stored file is outside the configured storage root")
+        path.unlink(missing_ok=True)
+        if path.parent != self.root:
+            try:
+                path.parent.rmdir()
+            except OSError:
+                pass
+              
     def read(self, uri: str) -> bytes:
         parsed = urlparse(uri)
         if parsed.scheme != "file":

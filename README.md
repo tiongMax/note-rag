@@ -49,17 +49,40 @@ docker compose up -d postgres
 Alternatively:
 
 ```powershell
-.\.venv\Scripts\python.exe -m uvicorn note_rag.api.app:app --reload
+.\.venv\Scripts\python.exe -m uvicorn note_rag.api.app:app `
+  --host 127.0.0.1 `
+  --port 8001 `
+  --reload `
+  --env-file .env
 ```
 
-Open `http://127.0.0.1:8000/docs` to test the API.
+Open `http://127.0.0.1:8001/docs` to test the API.
+
+## Operator interface
+
+The React operator interface covers document uploads, ingestion progress,
+document and chunk inspection, re-indexing, deletion, conversation history,
+streaming chat, source filtering, and citation inspection.
+
+Install and build it once:
+
+```powershell
+Set-Location frontend
+npm install
+npm run build
+Set-Location ..
+```
+
+FastAPI serves the built interface at `http://127.0.0.1:8001/`. For frontend
+development with hot reload, run `npm run dev` in `frontend`; Vite proxies API
+requests from port 5174 to the FastAPI server on port 8001.
 
 ## Upload a document
 
 ```powershell
 Invoke-RestMethod `
   -Method Post `
-  -Uri http://127.0.0.1:8000/api/v1/documents `
+  -Uri http://127.0.0.1:8001/api/v1/documents `
   -Form @{ file = Get-Item ".\documents\example.pdf" }
 ```
 
@@ -104,7 +127,7 @@ $body = @{
 
 Invoke-RestMethod `
   -Method Post `
-  -Uri http://127.0.0.1:8000/api/v1/retrieval/search `
+  -Uri http://127.0.0.1:8001/api/v1/retrieval/search `
   -ContentType "application/json" `
   -Body $body
 ```
@@ -130,7 +153,7 @@ $body = @{
 
 Invoke-RestMethod `
   -Method Post `
-  -Uri http://127.0.0.1:8000/api/v1/retrieval/context `
+  -Uri http://127.0.0.1:8001/api/v1/retrieval/context `
   -ContentType "application/json" `
   -Body $body
 ```
@@ -151,7 +174,7 @@ $body = @{
 
 $answer = Invoke-RestMethod `
   -Method Post `
-  -Uri http://127.0.0.1:8000/api/v1/chat `
+  -Uri http://127.0.0.1:8001/api/v1/chat `
   -ContentType "application/json" `
   -Body $body
 

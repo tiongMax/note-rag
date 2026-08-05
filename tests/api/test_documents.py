@@ -197,6 +197,32 @@ def test_upload_and_inspect_document(
     assert reindex.json()["status"] == "indexed"
 
 
+def test_delete_document_removes_record_and_file(
+    database: Database,
+    tmp_path: Path,
+) -> None:
+    client = build_client(database, tmp_path)
+    upload = client.post(
+        "/api/v1/documents",
+        files={"file": ("remove.txt", b"temporary knowledge", "text/plain")},
+    )
+    document = client.get(
+        f"/api/v1/documents/{upload.json()['document_id']}"
+    ).json()
+    stored_path = Path(document["storage_uri"].removeprefix("file:///"))
+
+    response = client.delete(
+        f"/api/v1/documents/{upload.json()['document_id']}"
+    )
+
+    assert response.status_code == 204
+    assert not stored_path.exists()
+    assert (
+        client.get(f"/api/v1/documents/{upload.json()['document_id']}").status_code
+        == 404
+    )
+
+
 def test_duplicate_upload_returns_existing_document(
     database: Database,
     tmp_path: Path,
