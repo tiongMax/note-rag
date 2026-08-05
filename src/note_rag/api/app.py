@@ -7,10 +7,16 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, File, HTTPException, Response, UploadFile, status
+from sqlalchemy import text
 from starlette.concurrency import run_in_threadpool
-from starlette.responses import StreamingResponse
+from starlette.middleware.cors import CORSMiddleware
+from starlette.middleware.trustedhost import TrustedHostMiddleware
+from starlette.responses import PlainTextResponse, StreamingResponse
 from starlette.staticfiles import StaticFiles
 
+from note_rag import __version__
+from note_rag.api.errors import install_error_handlers
+from note_rag.api.middleware import install_http_middleware
 from note_rag.api.models import (
     ChatMessageResponse,
     ChatRequest,
@@ -29,6 +35,7 @@ from note_rag.api.models import (
     SearchResponse,
     StoredChunkResponse,
 )
+from note_rag.api.observability import MetricsRegistry, configure_logging
 from note_rag.api.settings import ApiSettings, api_settings
 from note_rag.chat import (
     ChatOptions,
@@ -72,6 +79,11 @@ def create_app(
 ) -> FastAPI:
     """Build an application without starting network services."""
 
+    configure_logging(
+        app_settings.log_level,
+        json_logs=app_settings.json_logs,
+    )
+    owns_database = database is None
     resolved_database = database or Database()
     resolved_storage = storage or LocalFileStorage(app_settings.storage_path)
     parser_registry = ParserRegistry()
@@ -153,15 +165,43 @@ def create_app(
             stop_event.set()
             if worker_thread is not None:
                 worker_thread.join(timeout=5)
+            if owns_database:
+                resolved_database.dispose()
 
+    production = app_settings.app_environment.lower() in {"production", "prod"}
     app = FastAPI(
         title=app_settings.app_name,
-        version="0.1.0",
+        version=__version__,
         description="A compact ingestion, retrieval, and grounded chat service.",
         lifespan=lifespan,
+        docs_url=None if production else "/docs",
+        redoc_url=None if production else "/redoc",
+        openapi_url=None if production else "/openapi.json",
     )
     app.state.database = resolved_database
     app.state.ingestion_worker = ingestion_worker
+    metrics = MetricsRegistry()
+    app.state.metrics = metrics
+    install_error_handlers(app)
+    install_http_middleware(app, app_settings, metrics)
+    app.add_middleware(
+        TrustedHostMiddleware,
+        allowed_hosts=list(app_settings.allowed_hosts),
+    )
+    if app_settings.allowed_origins:
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=list(app_settings.allowed_origins),
+            allow_credentials=False,
+            allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
+            allow_headers=[
+                "Authorization",
+                "Content-Type",
+                "X-API-Key",
+                "X-Request-ID",
+            ],
+            expose_headers=["X-Request-ID", "Retry-After"],
+        )
 
     @app.get("/health", tags=["system"])
     async def health() -> dict[str, str]:
@@ -170,6 +210,27 @@ def create_app(
             "service": app_settings.app_name,
             "environment": app_settings.app_environment,
         }
+
+    @app.get("/health/ready", tags=["system"])
+    async def readiness() -> dict[str, str]:
+        try:
+            await run_in_threadpool(_check_database, resolved_database)
+        except Exception as error:
+            raise HTTPException(
+                status_code=503,
+                detail="database is not ready",
+            ) from error
+        return {"status": "ready", "database": "ok"}
+
+    if app_settings.metrics_enabled:
+
+        @app.get(
+            "/metrics",
+            response_class=PlainTextResponse,
+            include_in_schema=False,
+        )
+        async def prometheus_metrics() -> str:
+            return metrics.render()
 
     @app.post("/api/v1/chunks", response_model=ChunkTextResponse, tags=["chunking"])
     async def chunk_text(request: ChunkTextRequest) -> ChunkTextResponse:
@@ -536,7 +597,11 @@ def create_app(
                 ],
             )
 
-    frontend_dist = Path(__file__).resolve().parents[3] / "frontend" / "dist"
+    frontend_dist = app_settings.frontend_dist_path
+    if not frontend_dist.is_absolute():
+        frontend_dist = Path.cwd() / frontend_dist
+    if not frontend_dist.is_dir():
+        frontend_dist = Path(__file__).resolve().parents[3] / "frontend" / "dist"
     if frontend_dist.is_dir():
         app.mount(
             "/",
@@ -545,6 +610,11 @@ def create_app(
         )
 
     return app
+
+
+def _check_database(database: Database) -> None:
+    with database.engine.connect() as connection:
+        connection.execute(text("SELECT 1"))
 
 
 app = create_app()

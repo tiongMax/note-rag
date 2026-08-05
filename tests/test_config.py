@@ -1,6 +1,9 @@
 import os
 from pathlib import Path
 
+import pytest
+
+from note_rag.api.settings import ApiSettings
 from note_rag.config import load_environment
 
 
@@ -33,3 +36,19 @@ def test_process_environment_takes_precedence(
     load_environment(dotenv_path)
 
     assert os.environ["NOTE_RAG_DOTENV_TEST"] == "from-process"
+
+
+def test_rejects_insecure_production_configuration() -> None:
+    with pytest.raises(ValueError, match="GEMINI_API_KEY"):
+        ApiSettings(app_environment="production")
+
+
+def test_accepts_secure_production_configuration() -> None:
+    settings = ApiSettings(
+        app_environment="production",
+        gemini_api_key="configured",
+        api_auth_token="a-production-token-with-adequate-length",
+        allowed_hosts=("rag.example.com",),
+    )
+
+    assert settings.app_environment == "production"

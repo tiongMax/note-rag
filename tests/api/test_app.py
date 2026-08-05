@@ -62,4 +62,6 @@ def test_rejects_overlap_equal_to_chunk_size() -> None:
     )
 
     assert response.status_code == 422
-    assert response.json()["detail"] == "chunk_overlap must be smaller than chunk_size"
+    assert response.json()["error"]["message"] == (
+        "chunk_overlap must be smaller than chunk_size"
+    )
