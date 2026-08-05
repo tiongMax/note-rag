@@ -22,7 +22,7 @@ class ApiSettings:
     context_max_chunks: int = 8
     context_max_tokens: int = 1200
     rerank_weight: float = 0.7
-    chat_model: str = "gemini-2.5-flash"
+    chat_model: str = "gemini-3.5-flash"
     chat_temperature: float = 0.1
     chat_max_output_tokens: int = 1024
     chat_history_max_messages: int = 20
@@ -54,7 +54,7 @@ class ApiSettings:
             context_max_chunks=int(os.getenv("CONTEXT_MAX_CHUNKS", "8")),
             context_max_tokens=int(os.getenv("CONTEXT_MAX_TOKENS", "1200")),
             rerank_weight=float(os.getenv("RERANK_WEIGHT", "0.7")),
-            chat_model=os.getenv("CHAT_MODEL", "gemini-2.5-flash"),
+            chat_model=os.getenv("CHAT_MODEL", "gemini-3.5-flash"),
             chat_temperature=float(os.getenv("CHAT_TEMPERATURE", "0.1")),
             chat_max_output_tokens=int(
                 os.getenv("CHAT_MAX_OUTPUT_TOKENS", "1024")
