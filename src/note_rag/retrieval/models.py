@@ -28,6 +28,11 @@ class RetrievalHit:
     media_type: str
     position: int
     text: str
+    token_count: int
+    token_start: int
+    token_end: int
+    char_start: int
+    char_end: int
     source_metadata: dict[str, Any]
     score: float
     vector_score: float | None = None
@@ -39,3 +44,6 @@ class RetrievalResult:
     query: str
     mode: SearchMode
     hits: list[RetrievalHit]
+    embedding_cache_status: str = "disabled"
+    retrieval_cache_status: str = "disabled"
+    corpus_version: int = 0

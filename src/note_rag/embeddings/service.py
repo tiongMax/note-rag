@@ -4,6 +4,9 @@ import math
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from typing import Protocol
+
+from sqlalchemy.orm import Session
 
 from note_rag.embeddings.providers import EmbeddingProvider
 from note_rag.persistence import (
@@ -25,6 +28,15 @@ class IndexingResult:
     error_message: str | None = None
 
 
+class RetrievalCacheInvalidator(Protocol):
+    def invalidate_retrieval(
+        self,
+        *,
+        reason: str,
+        session: Session | None = None,
+    ) -> int: ...
+
+
 class IndexingService:
     def __init__(
         self,
@@ -32,12 +44,14 @@ class IndexingService:
         provider: EmbeddingProvider,
         *,
         batch_size: int = 32,
+        cache: RetrievalCacheInvalidator | None = None,
     ) -> None:
         if batch_size <= 0:
             raise ValueError("batch_size must be greater than zero")
         self.database = database
         self.provider = provider
         self.batch_size = batch_size
+        self.cache = cache
 
     def index_document(
         self,
@@ -88,6 +102,11 @@ class IndexingService:
                 document.indexing_status = IndexingStatus.INDEXED
                 document.embedding_model = self.provider.model_name
                 document.indexed_at = datetime.now(UTC)
+                if self.cache is not None:
+                    self.cache.invalidate_retrieval(
+                        reason="document_indexed",
+                        session=session,
+                    )
                 if job is not None:
                     IngestionJobRepository(session).set_status(
                         job, IngestionJobStatus.INDEXING, progress=95

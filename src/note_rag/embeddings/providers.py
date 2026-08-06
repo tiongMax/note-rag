@@ -1,5 +1,7 @@
 """Embedding-provider contracts and the first local implementation."""
 
+import hashlib
+import time
 from typing import Any, Protocol, cast
 
 
@@ -15,6 +17,44 @@ class EmbeddingProvider(Protocol):
 
 class QueryEmbeddingProvider(EmbeddingProvider, Protocol):
     def embed_query(self, query: str) -> list[float]: ...
+
+
+class DeterministicEmbeddingProvider:
+    """Offline fixed-latency provider for repeatable cache benchmarks."""
+
+    def __init__(
+        self,
+        *,
+        dimension: int = 768,
+        delay_ms: float = 500,
+    ) -> None:
+        if dimension <= 0:
+            raise ValueError("dimension must be greater than zero")
+        if delay_ms < 0:
+            raise ValueError("delay_ms cannot be negative")
+        self._dimension = dimension
+        self._delay_seconds = delay_ms / 1000
+
+    @property
+    def model_name(self) -> str:
+        return f"benchmark-deterministic-{self._dimension}"
+
+    @property
+    def dimension(self) -> int:
+        return self._dimension
+
+    def embed(self, texts: list[str]) -> list[list[float]]:
+        if texts:
+            time.sleep(self._delay_seconds)
+        return [self._vector(text) for text in texts]
+
+    def embed_query(self, query: str) -> list[float]:
+        time.sleep(self._delay_seconds)
+        return self._vector(query)
+
+    def _vector(self, text: str) -> list[float]:
+        raw = hashlib.shake_256(text.encode()).digest(self._dimension)
+        return [(value - 127.5) / 127.5 for value in raw]
 
 
 class GeminiEmbeddingProvider:

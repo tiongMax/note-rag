@@ -5,6 +5,7 @@ from dataclasses import dataclass
 
 from note_rag.embeddings import QueryEmbeddingProvider
 from note_rag.persistence import Database
+from note_rag.retrieval.cache import PersistentRetrievalCache
 from note_rag.retrieval.models import (
     RetrievalHit,
     RetrievalResult,
@@ -30,6 +31,7 @@ class RetrievalService:
         *,
         candidate_multiplier: int = 4,
         rrf_k: int = 60,
+        cache: PersistentRetrievalCache | None = None,
     ) -> None:
         if candidate_multiplier <= 0:
             raise ValueError("candidate_multiplier must be greater than zero")
@@ -39,6 +41,7 @@ class RetrievalService:
         self.embedding_provider = embedding_provider
         self.candidate_multiplier = candidate_multiplier
         self.rrf_k = rrf_k
+        self.cache = cache
 
     def search(
         self,
@@ -58,6 +61,24 @@ class RetrievalService:
             raise ValueError("vector_weight must be between zero and one")
 
         resolved_filters = filters or SearchFilters()
+        cache_status = "disabled"
+        corpus_version = 0
+        cache_key = ""
+        if self.cache is not None:
+            cached, cache_status, corpus_version, cache_key = (
+                self.cache.get_retrieval(
+                    query=query,
+                    mode=mode,
+                    top_k=top_k,
+                    vector_weight=vector_weight,
+                    filters=resolved_filters,
+                    model_name=self.embedding_provider.model_name,
+                    candidate_multiplier=self.candidate_multiplier,
+                    rrf_k=self.rrf_k,
+                )
+            )
+            if cached is not None:
+                return cached
         candidate_limit = top_k * self.candidate_multiplier
         needs_vector = mode is SearchMode.VECTOR or (
             mode is SearchMode.HYBRID and vector_weight > 0
@@ -65,7 +86,10 @@ class RetrievalService:
         needs_keyword = mode is SearchMode.KEYWORD or (
             mode is SearchMode.HYBRID and vector_weight < 1
         )
-        query_vector = self._embed_query(query) if needs_vector else None
+        embedding_cache_status = "not_used"
+        query_vector = None
+        if needs_vector:
+            query_vector, embedding_cache_status = self._embed_query(query)
 
         with self.database.session() as session:
             repository = RetrievalRepository(session)
@@ -100,15 +124,52 @@ class RetrievalService:
             ]
         else:
             hits = self._fuse(vector_hits, keyword_hits, vector_weight)
-        return RetrievalResult(query=query, mode=mode, hits=hits[:top_k])
+        result = RetrievalResult(
+            query=query,
+            mode=mode,
+            hits=hits[:top_k],
+            embedding_cache_status=embedding_cache_status,
+            retrieval_cache_status=cache_status,
+            corpus_version=corpus_version,
+        )
+        if self.cache is not None:
+            self.cache.put_retrieval(
+                cache_key,
+                result,
+                corpus_version=corpus_version,
+            )
+        return result
 
-    def _embed_query(self, query: str) -> list[float]:
-        vector = self.embedding_provider.embed_query(query)
+    def _embed_query(self, query: str) -> tuple[list[float], str]:
+        cache_status = "disabled"
+        if self.cache is not None:
+            vector, cache_status = self.cache.get_embedding(
+                model_name=self.embedding_provider.model_name,
+                dimension=self.embedding_provider.dimension,
+                query=query,
+            )
+            if vector is not None:
+                return vector, cache_status
+        try:
+            vector = self.embedding_provider.embed_query(query)
+        except Exception:
+            if self.cache is not None:
+                self.cache.record_provider_call("error")
+            raise
+        if self.cache is not None:
+            self.cache.record_provider_call("success")
         if len(vector) != self.embedding_provider.dimension:
             raise ValueError("embedding provider returned the wrong dimension")
         if not all(math.isfinite(value) for value in vector):
             raise ValueError("embedding vector contains a non-finite value")
-        return vector
+        if self.cache is not None:
+            self.cache.put_embedding(
+                model_name=self.embedding_provider.model_name,
+                dimension=self.embedding_provider.dimension,
+                query=query,
+                vector=vector,
+            )
+        return vector, cache_status
 
     def _fuse(
         self,
@@ -161,6 +222,11 @@ class RetrievalService:
             media_type=candidate.media_type,
             position=chunk.position,
             text=chunk.text,
+            token_count=chunk.token_count,
+            token_start=chunk.token_start,
+            token_end=chunk.token_end,
+            char_start=chunk.char_start,
+            char_end=chunk.char_end,
             source_metadata=chunk.source_metadata,
             score=score,
             vector_score=vector_score,
