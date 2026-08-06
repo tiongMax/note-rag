@@ -8,6 +8,7 @@ from typing import Any, cast
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
     JSON,
+    BigInteger,
     CheckConstraint,
     DateTime,
     Enum,
@@ -298,3 +299,43 @@ class ChatMessageRecord(TimestampMixin, Base):
     model_name: Mapped[str | None] = mapped_column(String(255))
 
     conversation: Mapped[Conversation] = relationship(back_populates="messages")
+
+
+class CacheState(TimestampMixin, Base):
+    """Small persistent state used to version corpus-dependent cache entries."""
+
+    __tablename__ = "cache_state"
+
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    value: Mapped[int] = mapped_column(BigInteger, nullable=False)
+
+
+class QueryEmbeddingCache(TimestampMixin, Base):
+    __tablename__ = "query_embedding_cache"
+    __table_args__ = (Index("ix_query_embedding_cache_expires", "expires_at"),)
+
+    key_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    model_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    normalized_query: Mapped[str] = mapped_column(Text, nullable=False)
+    dimension: Mapped[int] = mapped_column(Integer, nullable=False)
+    vector: Mapped[list[float]] = mapped_column(JSON, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+    )
+
+
+class RetrievalResultCache(TimestampMixin, Base):
+    __tablename__ = "retrieval_result_cache"
+    __table_args__ = (
+        Index("ix_retrieval_result_cache_expires", "expires_at"),
+        Index("ix_retrieval_result_cache_corpus", "corpus_version"),
+    )
+
+    key_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    corpus_version: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+    )

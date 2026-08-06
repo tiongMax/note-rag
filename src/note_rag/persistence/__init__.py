@@ -3,6 +3,7 @@
 from note_rag.persistence.database import Database
 from note_rag.persistence.models import (
     Base,
+    CacheState,
     ChatMessageRecord,
     ChatRole,
     ChunkRecord,
@@ -12,6 +13,8 @@ from note_rag.persistence.models import (
     IndexingStatus,
     IngestionJob,
     IngestionJobStatus,
+    QueryEmbeddingCache,
+    RetrievalResultCache,
 )
 from note_rag.persistence.repositories import (
     ChatMessageRepository,
@@ -23,6 +26,7 @@ from note_rag.persistence.repositories import (
 
 __all__ = [
     "Base",
+    "CacheState",
     "ChatMessageRecord",
     "ChatMessageRepository",
     "ChatRole",
@@ -38,4 +42,6 @@ __all__ = [
     "IngestionJobRepository",
     "IngestionJobStatus",
     "IndexingStatus",
+    "QueryEmbeddingCache",
+    "RetrievalResultCache",
 ]

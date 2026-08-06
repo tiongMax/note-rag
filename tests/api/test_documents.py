@@ -302,6 +302,10 @@ def test_searches_uploaded_chunks(database: Database, tmp_path: Path) -> None:
     assert upload.status_code == 201
     assert search.status_code == 200
     assert search.json()["hits"][0]["filename"] == "retrieval.txt"
+    assert search.json()["hits"][0]["char_start"] == 0
+    assert search.json()["hits"][0]["char_end"] == len("apples grow in")
+    assert search.json()["hits"][0]["text"] == "apples grow in"
+    assert search.json()["hits"][0]["token_count"] == 3
     assert search.json()["hits"][0]["keyword_score"] is not None
 
 

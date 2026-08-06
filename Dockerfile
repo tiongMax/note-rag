@@ -27,7 +27,8 @@ RUN python -m pip install --upgrade pip \
 COPY --from=frontend-build /build/frontend/dist ./frontend/dist
 COPY docker/entrypoint.sh ./docker/entrypoint.sh
 
-RUN mkdir -p /app/data/uploads \
+RUN sed -i 's/\r$//' ./docker/entrypoint.sh \
+    && mkdir -p /app/data/uploads \
     && chown -R note-rag:note-rag /app
 
 USER note-rag

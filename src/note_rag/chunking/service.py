@@ -1,7 +1,13 @@
 """Token-aware text chunking."""
 
+from typing import Protocol
+
 from note_rag.chunking.models import Chunk, ChunkMetadata
 from note_rag.chunking.tokens import RegexTokenCounter
+
+
+class Chunker(Protocol):
+    def chunk(self, text: str, *, source_id: str | None = None) -> list[Chunk]: ...
 
 
 class TokenChunker:

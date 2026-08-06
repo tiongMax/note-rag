@@ -1,0 +1,63 @@
+{
+  "schema_version": "1.0",
+  "dataset": "benchmarks/gold/dataset.jsonl",
+  "dataset_sha256": "c4d2adc7bf7a80313e651c24f1b24aa2b9bb4218903ad7363b726b1cee03190d",
+  "question_count": 48,
+  "passage_count": 49,
+  "sources": [
+    {
+      "source_id": "L2 - Process Abstraction.pdf",
+      "source_path": "documents/L2 - Process Abstraction.pdf",
+      "source_sha256": "1280da7f8d427feea2afe043322acee1f28527d0c5adb6fc0ca8715e43873c0b",
+      "parsed_text_sha256": "1a30bafc0b8e5e55a69bc4742ed5e68cfc46cef9ae48644c95478b1993824d18",
+      "page_count": 71,
+      "parsed_characters": 22516,
+      "question_count": 6
+    },
+    {
+      "source_id": "L2b - Process Abstraction in Unix.pdf",
+      "source_path": "documents/L2b - Process Abstraction in Unix.pdf",
+      "source_sha256": "17261741990bd07310d6050b6ea4ca4062eee41a797ec64728f16caa8b35c557",
+      "parsed_text_sha256": "aac27cd6c3680f9070d3f2c5949fb701d052b46c3f839e4243c56d0cbae33177",
+      "page_count": 34,
+      "parsed_characters": 11715,
+      "question_count": 6
+    },
+    {
+      "source_id": "L3 - Process Scheduling.pdf",
+      "source_path": "documents/L3 - Process Scheduling.pdf",
+      "source_sha256": "efe836d8682c6680a04052f3b07ab44d4f94863be07232a4f6a604bc2cd1393d",
+      "parsed_text_sha256": "b016a0d43951f89f16b63e21fd71c0f067d0426855ccd8a43a19ade85f1fcfbf",
+      "page_count": 47,
+      "parsed_characters": 15759,
+      "question_count": 11
+    },
+    {
+      "source_id": "L4 - IPC.pdf",
+      "source_path": "documents/L4 - IPC.pdf",
+      "source_sha256": "20648bd286ed6d1c81f04db4964310254e69d5e12971e2327e4608c26742ca28",
+      "parsed_text_sha256": "7f4bc93e63028a12aef456ade9fb09971e5ed85ea7fee9027080f73a128f98a9",
+      "page_count": 31,
+      "parsed_characters": 10690,
+      "question_count": 7
+    },
+    {
+      "source_id": "L5 - Process Alternative - Threads.pdf",
+      "source_path": "documents/L5 - Process Alternative - Threads.pdf",
+      "source_sha256": "4f37a1bbb9630570c663edf24a82468872ceea17f3a89b1834da0f7c656bc0dc",
+      "parsed_text_sha256": "8ee48bd3b09310b1732657c335d4af50c76bf0ee575222a5557fa16bad7ee519",
+      "page_count": 34,
+      "parsed_characters": 11529,
+      "question_count": 6
+    },
+    {
+      "source_id": "L6 - Synchronization.pdf",
+      "source_path": "documents/L6 - Synchronization.pdf",
+      "source_sha256": "dd9a835f30f25bccb93505ab715c46c9dd23f7a0123a54cbd58af7476ded1398",
+      "parsed_text_sha256": "0537cb8aee6bea398602d59010d286107faa645679161c48d8927836fa711ff0",
+      "page_count": 56,
+      "parsed_characters": 19432,
+      "question_count": 12
+    }
+  ]
+}

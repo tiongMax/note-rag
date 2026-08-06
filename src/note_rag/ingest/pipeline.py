@@ -5,7 +5,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
-from note_rag.chunking import TokenChunker
+from note_rag.chunking import Chunker, TokenChunker
 from note_rag.ingest.parsers import ParserRegistry
 from note_rag.ingest.storage import LocalFileStorage
 from note_rag.persistence import (
@@ -38,7 +38,7 @@ class IngestionPipeline:
         storage: LocalFileStorage,
         *,
         parser_registry: ParserRegistry | None = None,
-        chunker: TokenChunker | None = None,
+        chunker: Chunker | None = None,
     ) -> None:
         self.database = database
         self.storage = storage

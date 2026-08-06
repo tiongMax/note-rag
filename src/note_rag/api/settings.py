@@ -23,20 +23,32 @@ def _env_csv(name: str, default: tuple[str, ...]) -> tuple[str, ...]:
 class ApiSettings:
     app_name: str = "Note RAG"
     app_environment: str = "development"
+    chunking_strategy: str = "fixed"
     chunk_size: int = 200
     chunk_overlap: int = 20
     storage_path: Path = Path("data/uploads")
     frontend_dist_path: Path = Path("frontend/dist")
     max_upload_bytes: int = 10 * 1024 * 1024
     embedding_model: str = "gemini-embedding-2"
+    embedding_backend: str = "gemini"
+    benchmark_embedding_delay_ms: float = 500.0
     embedding_dimension: int = 768
     embedding_batch_size: int = 32
     retrieval_candidate_multiplier: int = 4
     retrieval_rrf_k: int = 60
+    cache_enabled: bool = True
+    embedding_cache_enabled: bool = True
+    retrieval_cache_enabled: bool = True
+    embedding_cache_ttl_seconds: int = 86_400
+    retrieval_cache_ttl_seconds: int = 3_600
     context_candidate_k: int = 20
     context_max_chunks: int = 8
     context_max_tokens: int = 1200
+    reranker_backend: str = "lexical"
     rerank_weight: float = 0.7
+    cross_encoder_model: str = "cross-encoder/ms-marco-MiniLM-L6-v2"
+    cross_encoder_device: str = ""
+    cross_encoder_batch_size: int = 16
     chat_model: str = "gemini-3.5-flash"
     chat_temperature: float = 0.1
     chat_max_output_tokens: int = 1024
@@ -62,6 +74,20 @@ class ApiSettings:
     metrics_enabled: bool = True
 
     def __post_init__(self) -> None:
+        if self.chunking_strategy not in {"fixed", "recursive"}:
+            raise ValueError(
+                "CHUNKING_STRATEGY must be either 'fixed' or 'recursive'"
+            )
+        if self.reranker_backend not in {"lexical", "cross_encoder"}:
+            raise ValueError(
+                "RERANKER_BACKEND must be either 'lexical' or 'cross_encoder'"
+            )
+        if self.embedding_backend not in {"gemini", "deterministic"}:
+            raise ValueError(
+                "EMBEDDING_BACKEND must be either 'gemini' or 'deterministic'"
+            )
+        if not self.cross_encoder_model.strip():
+            raise ValueError("CROSS_ENCODER_MODEL cannot be empty")
         if self.chunk_size <= 0:
             raise ValueError("CHUNK_SIZE must be greater than zero")
         if not 0 <= self.chunk_overlap < self.chunk_size:
@@ -72,6 +98,9 @@ class ApiSettings:
             "MAX_UPLOAD_BYTES": self.max_upload_bytes,
             "EMBEDDING_DIMENSION": self.embedding_dimension,
             "EMBEDDING_BATCH_SIZE": self.embedding_batch_size,
+            "EMBEDDING_CACHE_TTL_SECONDS": self.embedding_cache_ttl_seconds,
+            "RETRIEVAL_CACHE_TTL_SECONDS": self.retrieval_cache_ttl_seconds,
+            "CROSS_ENCODER_BATCH_SIZE": self.cross_encoder_batch_size,
             "CHAT_MAX_OUTPUT_TOKENS": self.chat_max_output_tokens,
             "MAX_REQUEST_BYTES": self.max_request_bytes,
             "RATE_LIMIT_REQUESTS": self.rate_limit_requests,
@@ -111,6 +140,10 @@ class ApiSettings:
         return cls(
             app_name=os.getenv("APP_NAME", "Note RAG"),
             app_environment=os.getenv("APP_ENVIRONMENT", "development"),
+            chunking_strategy=os.getenv(
+                "CHUNKING_STRATEGY",
+                "fixed",
+            ).strip().lower(),
             chunk_size=int(os.getenv("CHUNK_SIZE", "200")),
             chunk_overlap=int(os.getenv("CHUNK_OVERLAP", "20")),
             storage_path=Path(os.getenv("UPLOAD_STORAGE_PATH", "data/uploads")),
@@ -130,10 +163,47 @@ class ApiSettings:
                 os.getenv("RETRIEVAL_CANDIDATE_MULTIPLIER", "4")
             ),
             retrieval_rrf_k=int(os.getenv("RETRIEVAL_RRF_K", "60")),
+            cache_enabled=_env_bool("CACHE_ENABLED", True),
+            embedding_cache_enabled=_env_bool(
+                "EMBEDDING_CACHE_ENABLED",
+                True,
+            ),
+            embedding_backend=os.getenv(
+                "EMBEDDING_BACKEND",
+                "gemini",
+            ).strip().lower(),
+            benchmark_embedding_delay_ms=float(
+                os.getenv("BENCHMARK_EMBEDDING_DELAY_MS", "500")
+            ),
+            retrieval_cache_enabled=_env_bool(
+                "RETRIEVAL_CACHE_ENABLED",
+                True,
+            ),
+            embedding_cache_ttl_seconds=int(
+                os.getenv("EMBEDDING_CACHE_TTL_SECONDS", "86400")
+            ),
+            retrieval_cache_ttl_seconds=int(
+                os.getenv("RETRIEVAL_CACHE_TTL_SECONDS", "3600")
+            ),
             context_candidate_k=int(os.getenv("CONTEXT_CANDIDATE_K", "20")),
             context_max_chunks=int(os.getenv("CONTEXT_MAX_CHUNKS", "8")),
             context_max_tokens=int(os.getenv("CONTEXT_MAX_TOKENS", "1200")),
+            reranker_backend=os.getenv(
+                "RERANKER_BACKEND",
+                "lexical",
+            ).strip().lower(),
             rerank_weight=float(os.getenv("RERANK_WEIGHT", "0.7")),
+            cross_encoder_model=os.getenv(
+                "CROSS_ENCODER_MODEL",
+                "cross-encoder/ms-marco-MiniLM-L6-v2",
+            ).strip(),
+            cross_encoder_device=os.getenv(
+                "CROSS_ENCODER_DEVICE",
+                "",
+            ).strip(),
+            cross_encoder_batch_size=int(
+                os.getenv("CROSS_ENCODER_BATCH_SIZE", "16")
+            ),
             chat_model=os.getenv("CHAT_MODEL", "gemini-3.5-flash"),
             chat_temperature=float(os.getenv("CHAT_TEMPERATURE", "0.1")),
             chat_max_output_tokens=int(

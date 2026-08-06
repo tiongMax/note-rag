@@ -43,9 +43,20 @@ from note_rag.chat import (
     ChatService,
     GeminiChatProvider,
 )
-from note_rag.chunking import RegexTokenCounter, TokenChunker
-from note_rag.context import ContextBuilder, LexicalReranker, Reranker
+from note_rag.chunking import (
+    Chunker,
+    RecursiveChunker,
+    RegexTokenCounter,
+    TokenChunker,
+)
+from note_rag.context import (
+    ContextBuilder,
+    CrossEncoderReranker,
+    LexicalReranker,
+    Reranker,
+)
 from note_rag.embeddings import (
+    DeterministicEmbeddingProvider,
     GeminiEmbeddingProvider,
     IndexingService,
     QueryEmbeddingProvider,
@@ -65,7 +76,11 @@ from note_rag.persistence import (
     DocumentRepository,
     IngestionJobRepository,
 )
-from note_rag.retrieval import RetrievalService, SearchFilters
+from note_rag.retrieval import (
+    PersistentRetrievalCache,
+    RetrievalService,
+    SearchFilters,
+)
 
 
 def create_app(
@@ -83,6 +98,7 @@ def create_app(
         app_settings.log_level,
         json_logs=app_settings.json_logs,
     )
+    metrics = MetricsRegistry()
     owns_database = database is None
     resolved_database = database or Database()
     resolved_storage = storage or LocalFileStorage(app_settings.storage_path)
@@ -90,26 +106,55 @@ def create_app(
     token_counter = RegexTokenCounter()
     resolved_embedding_provider = (
         embedding_provider
-        or GeminiEmbeddingProvider(
-            app_settings.embedding_model,
-            api_key=app_settings.gemini_api_key,
-            expected_dimension=app_settings.embedding_dimension,
+        or (
+            DeterministicEmbeddingProvider(
+                dimension=app_settings.embedding_dimension,
+                delay_ms=app_settings.benchmark_embedding_delay_ms,
+            )
+            if app_settings.embedding_backend == "deterministic"
+            else GeminiEmbeddingProvider(
+                app_settings.embedding_model,
+                api_key=app_settings.gemini_api_key,
+                expected_dimension=app_settings.embedding_dimension,
+            )
         )
+    )
+    retrieval_cache = PersistentRetrievalCache(
+        resolved_database,
+        enabled=app_settings.cache_enabled,
+        embedding_enabled=app_settings.embedding_cache_enabled,
+        retrieval_enabled=app_settings.retrieval_cache_enabled,
+        embedding_ttl_seconds=app_settings.embedding_cache_ttl_seconds,
+        retrieval_ttl_seconds=app_settings.retrieval_cache_ttl_seconds,
+        metrics=metrics,
     )
     indexing_service = IndexingService(
         resolved_database,
         resolved_embedding_provider,
         batch_size=app_settings.embedding_batch_size,
+        cache=retrieval_cache,
     )
     retrieval_service = RetrievalService(
         resolved_database,
         resolved_embedding_provider,
         candidate_multiplier=app_settings.retrieval_candidate_multiplier,
         rrf_k=app_settings.retrieval_rrf_k,
+        cache=retrieval_cache,
     )
+    resolved_reranker = reranker
+    if resolved_reranker is None:
+        resolved_reranker = (
+            CrossEncoderReranker(
+                app_settings.cross_encoder_model,
+                device=app_settings.cross_encoder_device or None,
+                batch_size=app_settings.cross_encoder_batch_size,
+            )
+            if app_settings.reranker_backend == "cross_encoder"
+            else LexicalReranker(token_counter)
+        )
     context_builder = ContextBuilder(
         retrieval_service,
-        reranker or LexicalReranker(token_counter),
+        resolved_reranker,
         token_counter=token_counter,
     )
     resolved_chat_provider = chat_provider or GeminiChatProvider(
@@ -126,13 +171,19 @@ def create_app(
         history_max_messages=app_settings.chat_history_max_messages,
         history_max_tokens=app_settings.chat_history_max_tokens,
     )
+    chunker_class: type[TokenChunker] | type[RecursiveChunker] = (
+        RecursiveChunker
+        if app_settings.chunking_strategy == "recursive"
+        else TokenChunker
+    )
     pipeline = IngestionPipeline(
         resolved_database,
         resolved_storage,
         parser_registry=parser_registry,
-        chunker=TokenChunker(
+        chunker=chunker_class(
             chunk_size=app_settings.chunk_size,
             chunk_overlap=app_settings.chunk_overlap,
+            token_counter=token_counter,
         ),
     )
     ingestion_worker = IngestionWorker(
@@ -180,8 +231,8 @@ def create_app(
     )
     app.state.database = resolved_database
     app.state.ingestion_worker = ingestion_worker
-    metrics = MetricsRegistry()
     app.state.metrics = metrics
+    app.state.retrieval_cache = retrieval_cache
     install_error_handlers(app)
     install_http_middleware(app, app_settings, metrics)
     app.add_middleware(
@@ -200,7 +251,13 @@ def create_app(
                 "X-API-Key",
                 "X-Request-ID",
             ],
-            expose_headers=["X-Request-ID", "Retry-After"],
+            expose_headers=[
+                "X-Request-ID",
+                "Retry-After",
+                "X-Embedding-Cache",
+                "X-Retrieval-Cache",
+                "X-Corpus-Version",
+            ],
         )
 
     @app.get("/health", tags=["system"])
@@ -241,7 +298,7 @@ def create_app(
             else app_settings.chunk_overlap
         )
         try:
-            chunker = TokenChunker(
+            chunker: Chunker = chunker_class(
                 chunk_size=chunk_size,
                 chunk_overlap=chunk_overlap,
                 token_counter=token_counter,
@@ -370,6 +427,10 @@ def create_app(
                 raise HTTPException(status_code=404, detail="document not found")
             storage_uri = document.storage_uri
             repository.delete(document)
+            retrieval_cache.invalidate_retrieval(
+                reason="document_deleted",
+                session=session,
+            )
         if storage_uri is not None:
             resolved_storage.delete(storage_uri)
         return Response(status_code=status.HTTP_204_NO_CONTENT)
@@ -413,7 +474,10 @@ def create_app(
         response_model=SearchResponse,
         tags=["retrieval"],
     )
-    async def search_chunks(request: SearchRequest) -> SearchResponse:
+    async def search_chunks(
+        request: SearchRequest,
+        response: Response,
+    ) -> SearchResponse:
         filters = SearchFilters(
             document_ids=tuple(request.filters.document_ids),
             filenames=tuple(request.filters.filenames),
@@ -433,6 +497,9 @@ def create_app(
             raise HTTPException(status_code=422, detail=str(error)) from error
         except RuntimeError as error:
             raise HTTPException(status_code=503, detail=str(error)) from error
+        response.headers["X-Embedding-Cache"] = result.embedding_cache_status
+        response.headers["X-Retrieval-Cache"] = result.retrieval_cache_status
+        response.headers["X-Corpus-Version"] = str(result.corpus_version)
         return SearchResponse.model_validate(result, from_attributes=True)
 
     @app.post(

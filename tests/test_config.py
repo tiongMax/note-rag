@@ -43,6 +43,30 @@ def test_rejects_insecure_production_configuration() -> None:
         ApiSettings(app_environment="production")
 
 
+def test_rejects_unknown_chunking_strategy() -> None:
+    with pytest.raises(ValueError, match="CHUNKING_STRATEGY"):
+        ApiSettings(chunking_strategy="semantic")
+
+
+def test_reads_cross_encoder_configuration(monkeypatch) -> None:
+    monkeypatch.setenv("RERANKER_BACKEND", "cross_encoder")
+    monkeypatch.setenv("CROSS_ENCODER_MODEL", "local-reranker")
+    monkeypatch.setenv("CROSS_ENCODER_DEVICE", "cpu")
+    monkeypatch.setenv("CROSS_ENCODER_BATCH_SIZE", "8")
+
+    settings = ApiSettings.from_env()
+
+    assert settings.reranker_backend == "cross_encoder"
+    assert settings.cross_encoder_model == "local-reranker"
+    assert settings.cross_encoder_device == "cpu"
+    assert settings.cross_encoder_batch_size == 8
+
+
+def test_rejects_unknown_reranker_backend() -> None:
+    with pytest.raises(ValueError, match="RERANKER_BACKEND"):
+        ApiSettings(reranker_backend="hosted")
+
+
 def test_accepts_secure_production_configuration() -> None:
     settings = ApiSettings(
         app_environment="production",
