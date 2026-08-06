@@ -32,6 +32,8 @@ responsibilities while deliberately simplifying its scale.
 - Request IDs, structured logging, rate limits, and security headers
 - Liveness, database readiness, and Prometheus-compatible metrics
 - Production Docker image, Compose stack, and CI verification
+- Persistent exact-query embedding and retrieval caches with TTL expiry,
+  corpus-aware invalidation, and cache hit/miss metrics
 
 ## Setup
 
@@ -214,6 +216,27 @@ GET /api/v1/conversations/{conversation_id}
 .\.venv\Scripts\ruff.exe check src tests migrations
 .\.venv\Scripts\pyright.exe
 ```
+
+## Cache benchmark
+
+Exact query embeddings and retrieval results are persisted in SQLite. Cache
+keys include the embedding model, retrieval configuration, filters, and a
+fingerprint of the indexed corpus, so document changes bypass stale results.
+Entries also expire after `CACHE_TTL_SECONDS`.
+
+Run the repeat-query benchmark with:
+
+```powershell
+$env:PYTHONPATH = "src"
+.\.venv\Scripts\python.exe scripts\benchmark_cache.py `
+  --queries 100 `
+  --unique-queries 20 `
+  --output benchmarks\cache-results.synthetic.json
+```
+
+It reports mean and p95 latency, exact-query hit rate, and embedding-call
+reduction. Its default embedding delay is synthetic; use production traffic
+and the real provider before quoting résumé metrics.
 
 Set `TEST_DATABASE_URL` to run the PostgreSQL integration tests:
 

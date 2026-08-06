@@ -226,6 +226,7 @@ __marimo__/
 
 # docs
 /documents
+/data/cache/
 
 # Local learning notes
 /SOURCE_MAP.md

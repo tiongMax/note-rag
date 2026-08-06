@@ -8,6 +8,8 @@ from collections import Counter, defaultdict
 from datetime import UTC, datetime
 from typing import Any
 
+from note_rag.cache import PersistentCache
+
 
 class JsonFormatter(logging.Formatter):
     """Render one structured JSON object per log record."""
@@ -85,7 +87,7 @@ class MetricsRegistry:
             self._requests[(method, route, status_code)] += 1
             self._duration_seconds[(method, route)] += duration_seconds
 
-    def render(self) -> str:
+    def render(self, cache: PersistentCache | None = None) -> str:
         with self._lock:
             requests = self._requests.copy()
             durations = self._duration_seconds.copy()
@@ -124,6 +126,16 @@ class MetricsRegistry:
                 "note_rag_http_request_duration_seconds_sum"
                 f"{{{labels}}} {duration:.6f}"
             )
+        if cache is not None:
+            lines.extend(
+                [
+                    "# HELP note_rag_cache_events_total Cache events by namespace.",
+                    "# TYPE note_rag_cache_events_total counter",
+                ]
+            )
+            for (namespace, event), count in sorted(cache.stats().items()):
+                labels = _labels(namespace=namespace, event=event)
+                lines.append(f"note_rag_cache_events_total{{{labels}}} {count}")
         return "\n".join(lines) + "\n"
 
 

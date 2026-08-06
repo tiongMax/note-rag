@@ -60,6 +60,9 @@ class ApiSettings:
     log_level: str = "INFO"
     json_logs: bool = True
     metrics_enabled: bool = True
+    cache_enabled: bool = True
+    cache_path: Path = Path("data/cache/note-rag-cache.sqlite3")
+    cache_ttl_seconds: int = 3600
 
     def __post_init__(self) -> None:
         if self.chunk_size <= 0:
@@ -77,6 +80,7 @@ class ApiSettings:
             "RATE_LIMIT_REQUESTS": self.rate_limit_requests,
             "RATE_LIMIT_WINDOW_SECONDS": self.rate_limit_window_seconds,
             "WORKER_MAX_ATTEMPTS": self.worker_max_attempts,
+            "CACHE_TTL_SECONDS": self.cache_ttl_seconds,
         }
         for name, value in positive_values.items():
             if value <= 0:
@@ -188,6 +192,14 @@ class ApiSettings:
             log_level=os.getenv("LOG_LEVEL", "INFO").upper(),
             json_logs=_env_bool("JSON_LOGS", True),
             metrics_enabled=_env_bool("METRICS_ENABLED", True),
+            cache_enabled=_env_bool("CACHE_ENABLED", True),
+            cache_path=Path(
+                os.getenv(
+                    "CACHE_PATH",
+                    "data/cache/note-rag-cache.sqlite3",
+                )
+            ),
+            cache_ttl_seconds=int(os.getenv("CACHE_TTL_SECONDS", "3600")),
         )
 
 

@@ -1,10 +1,15 @@
 """Vector, keyword, and hybrid retrieval orchestration."""
 
 import math
+import uuid
 from dataclasses import dataclass
+from typing import Any, cast
 
+from sqlalchemy import func, select
+
+from note_rag.cache import PersistentCache, cache_key
 from note_rag.embeddings import QueryEmbeddingProvider
-from note_rag.persistence import Database
+from note_rag.persistence import ChunkRecord, Database, Document
 from note_rag.retrieval.models import (
     RetrievalHit,
     RetrievalResult,
@@ -30,6 +35,7 @@ class RetrievalService:
         *,
         candidate_multiplier: int = 4,
         rrf_k: int = 60,
+        cache: PersistentCache | None = None,
     ) -> None:
         if candidate_multiplier <= 0:
             raise ValueError("candidate_multiplier must be greater than zero")
@@ -39,6 +45,7 @@ class RetrievalService:
         self.embedding_provider = embedding_provider
         self.candidate_multiplier = candidate_multiplier
         self.rrf_k = rrf_k
+        self.cache = cache
 
     def search(
         self,
@@ -58,6 +65,25 @@ class RetrievalService:
             raise ValueError("vector_weight must be between zero and one")
 
         resolved_filters = filters or SearchFilters()
+        corpus_version = self._corpus_version()
+        result_key = cache_key(
+            {
+                "version": 1,
+                "corpus": corpus_version,
+                "query": query.casefold(),
+                "mode": mode.value,
+                "top_k": top_k,
+                "vector_weight": vector_weight,
+                "filters": resolved_filters,
+                "candidate_multiplier": self.candidate_multiplier,
+                "rrf_k": self.rrf_k,
+                "embedding_model": self.embedding_provider.model_name,
+            }
+        )
+        if self.cache is not None:
+            cached = self.cache.get("retrieval", result_key)
+            if cached is not None:
+                return self._deserialize_result(cached)
         candidate_limit = top_k * self.candidate_multiplier
         needs_vector = mode is SearchMode.VECTOR or (
             mode is SearchMode.HYBRID and vector_weight > 0
@@ -100,15 +126,105 @@ class RetrievalService:
             ]
         else:
             hits = self._fuse(vector_hits, keyword_hits, vector_weight)
-        return RetrievalResult(query=query, mode=mode, hits=hits[:top_k])
+        result = RetrievalResult(query=query, mode=mode, hits=hits[:top_k])
+        if self.cache is not None:
+            self.cache.set("retrieval", result_key, self._serialize_result(result))
+        return result
 
     def _embed_query(self, query: str) -> list[float]:
-        vector = self.embedding_provider.embed_query(query)
+        key = cache_key(
+            {
+                "version": 1,
+                "model": self.embedding_provider.model_name,
+                "dimension": self.embedding_provider.dimension,
+                "query": query.casefold(),
+            }
+        )
+        cached = (
+            self.cache.get("query_embedding", key)
+            if self.cache is not None
+            else None
+        )
+        vector = (
+            [float(value) for value in cached]
+            if cached is not None
+            else self.embedding_provider.embed_query(query)
+        )
         if len(vector) != self.embedding_provider.dimension:
             raise ValueError("embedding provider returned the wrong dimension")
         if not all(math.isfinite(value) for value in vector):
             raise ValueError("embedding vector contains a non-finite value")
+        if self.cache is not None and cached is None:
+            self.cache.set("query_embedding", key, vector)
         return vector
+
+    def _corpus_version(self) -> str:
+        """Fingerprint indexed corpus state so stale retrieval entries are bypassed."""
+
+        with self.database.session() as session:
+            row = session.execute(
+                select(
+                    func.count(ChunkRecord.id),
+                    func.max(ChunkRecord.updated_at),
+                    func.count(Document.id.distinct()),
+                    func.max(Document.updated_at),
+                ).select_from(ChunkRecord).join(Document)
+            ).one()
+        return cache_key({"version": 1, "state": list(row)})
+
+    @staticmethod
+    def _serialize_result(result: RetrievalResult) -> dict[str, object]:
+        return {
+            "query": result.query,
+            "mode": result.mode.value,
+            "hits": [
+                {
+                    "chunk_id": str(hit.chunk_id),
+                    "document_id": str(hit.document_id),
+                    "filename": hit.filename,
+                    "media_type": hit.media_type,
+                    "position": hit.position,
+                    "text": hit.text,
+                    "source_metadata": hit.source_metadata,
+                    "score": float(hit.score),
+                    "vector_score": (
+                        float(hit.vector_score)
+                        if hit.vector_score is not None
+                        else None
+                    ),
+                    "keyword_score": (
+                        float(hit.keyword_score)
+                        if hit.keyword_score is not None
+                        else None
+                    ),
+                }
+                for hit in result.hits
+            ],
+        }
+
+    @staticmethod
+    def _deserialize_result(payload: dict[str, object]) -> RetrievalResult:
+        raw_hits = cast(list[dict[str, Any]], payload["hits"])
+        hits = [
+            RetrievalHit(
+                chunk_id=uuid.UUID(item["chunk_id"]),
+                document_id=uuid.UUID(item["document_id"]),
+                filename=item["filename"],
+                media_type=item["media_type"],
+                position=item["position"],
+                text=item["text"],
+                source_metadata=item["source_metadata"],
+                score=item["score"],
+                vector_score=item["vector_score"],
+                keyword_score=item["keyword_score"],
+            )
+            for item in raw_hits
+        ]
+        return RetrievalResult(
+            query=str(payload["query"]),
+            mode=SearchMode(str(payload["mode"])),
+            hits=hits,
+        )
 
     def _fuse(
         self,

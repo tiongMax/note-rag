@@ -37,6 +37,7 @@ from note_rag.api.models import (
 )
 from note_rag.api.observability import MetricsRegistry, configure_logging
 from note_rag.api.settings import ApiSettings, api_settings
+from note_rag.cache import PersistentCache
 from note_rag.chat import (
     ChatOptions,
     ChatProvider,
@@ -96,6 +97,14 @@ def create_app(
             expected_dimension=app_settings.embedding_dimension,
         )
     )
+    cache = (
+        PersistentCache(
+            app_settings.cache_path,
+            ttl_seconds=app_settings.cache_ttl_seconds,
+        )
+        if app_settings.cache_enabled
+        else None
+    )
     indexing_service = IndexingService(
         resolved_database,
         resolved_embedding_provider,
@@ -106,6 +115,7 @@ def create_app(
         resolved_embedding_provider,
         candidate_multiplier=app_settings.retrieval_candidate_multiplier,
         rrf_k=app_settings.retrieval_rrf_k,
+        cache=cache,
     )
     context_builder = ContextBuilder(
         retrieval_service,
@@ -182,6 +192,7 @@ def create_app(
     app.state.ingestion_worker = ingestion_worker
     metrics = MetricsRegistry()
     app.state.metrics = metrics
+    app.state.cache = cache
     install_error_handlers(app)
     install_http_middleware(app, app_settings, metrics)
     app.add_middleware(
@@ -230,7 +241,7 @@ def create_app(
             include_in_schema=False,
         )
         async def prometheus_metrics() -> str:
-            return metrics.render()
+            return metrics.render(cache)
 
     @app.post("/api/v1/chunks", response_model=ChunkTextResponse, tags=["chunking"])
     async def chunk_text(request: ChunkTextRequest) -> ChunkTextResponse:
