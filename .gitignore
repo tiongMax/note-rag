@@ -225,7 +225,11 @@ __marimo__/
 .streamlit/secrets.toml
 
 # docs
+/data
 /documents
+/benchmarks/results/
+/tmp/
+/.worktrees/
 
 # Local learning notes
 /SOURCE_MAP.md
