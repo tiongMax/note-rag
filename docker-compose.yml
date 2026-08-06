@@ -31,10 +31,22 @@ services:
       postgres:
         condition: service_healthy
     environment:
-      APP_ENVIRONMENT: production
+      APP_ENVIRONMENT: ${APP_ENVIRONMENT:-production}
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-langchain}:${POSTGRES_PASSWORD:-langchain}@postgres:5432/${POSTGRES_DB:-langchain}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      EMBEDDING_BACKEND: ${EMBEDDING_BACKEND:-gemini}
+      BENCHMARK_EMBEDDING_DELAY_MS: ${BENCHMARK_EMBEDDING_DELAY_MS:-500}
       API_AUTH_TOKEN: ${API_AUTH_TOKEN:-}
+      CHUNKING_STRATEGY: ${CHUNKING_STRATEGY:-fixed}
+      CHUNK_SIZE: ${CHUNK_SIZE:-200}
+      CHUNK_OVERLAP: ${CHUNK_OVERLAP:-20}
+      CACHE_ENABLED: ${CACHE_ENABLED:-true}
+      EMBEDDING_CACHE_ENABLED: ${EMBEDDING_CACHE_ENABLED:-true}
+      RETRIEVAL_CACHE_ENABLED: ${RETRIEVAL_CACHE_ENABLED:-true}
+      EMBEDDING_CACHE_TTL_SECONDS: ${EMBEDDING_CACHE_TTL_SECONDS:-86400}
+      RETRIEVAL_CACHE_TTL_SECONDS: ${RETRIEVAL_CACHE_TTL_SECONDS:-3600}
+      RATE_LIMIT_REQUESTS: ${RATE_LIMIT_REQUESTS:-120}
+      RATE_LIMIT_WINDOW_SECONDS: ${RATE_LIMIT_WINDOW_SECONDS:-60}
       ALLOWED_HOSTS: ${ALLOWED_HOSTS:-localhost,127.0.0.1}
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-}
       UPLOAD_STORAGE_PATH: /app/data/uploads
@@ -61,6 +73,84 @@ services:
       start_period: 15s
       retries: 3
 
+  postgres-recursive:
+    profiles: ["benchmark"]
+    image: pgvector/pgvector:pg16
+    container_name: note-rag-postgres-recursive
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-langchain}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-langchain}
+      POSTGRES_DB: ${POSTGRES_DB:-langchain}
+    ports:
+      - "${RECURSIVE_POSTGRES_PORT:-6025}:5432"
+    volumes:
+      - pgvector_recursive_data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-langchain} -d ${POSTGRES_DB:-langchain}",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  app-recursive:
+    profiles: ["benchmark"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: note-rag-app-recursive
+    init: true
+    restart: unless-stopped
+    depends_on:
+      postgres-recursive:
+        condition: service_healthy
+    environment:
+      APP_ENVIRONMENT: ${APP_ENVIRONMENT:-production}
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-langchain}:${POSTGRES_PASSWORD:-langchain}@postgres-recursive:5432/${POSTGRES_DB:-langchain}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      EMBEDDING_BACKEND: ${EMBEDDING_BACKEND:-gemini}
+      BENCHMARK_EMBEDDING_DELAY_MS: ${BENCHMARK_EMBEDDING_DELAY_MS:-500}
+      API_AUTH_TOKEN: ${API_AUTH_TOKEN:-}
+      CHUNKING_STRATEGY: recursive
+      CHUNK_SIZE: ${CHUNK_SIZE:-200}
+      CHUNK_OVERLAP: ${CHUNK_OVERLAP:-20}
+      CACHE_ENABLED: ${CACHE_ENABLED:-true}
+      EMBEDDING_CACHE_ENABLED: ${EMBEDDING_CACHE_ENABLED:-true}
+      RETRIEVAL_CACHE_ENABLED: ${RETRIEVAL_CACHE_ENABLED:-true}
+      EMBEDDING_CACHE_TTL_SECONDS: ${EMBEDDING_CACHE_TTL_SECONDS:-86400}
+      RETRIEVAL_CACHE_TTL_SECONDS: ${RETRIEVAL_CACHE_TTL_SECONDS:-3600}
+      RATE_LIMIT_REQUESTS: ${RATE_LIMIT_REQUESTS:-120}
+      RATE_LIMIT_WINDOW_SECONDS: ${RATE_LIMIT_WINDOW_SECONDS:-60}
+      ALLOWED_HOSTS: ${ALLOWED_HOSTS:-localhost,127.0.0.1}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-}
+      UPLOAD_STORAGE_PATH: /app/data/uploads
+      FRONTEND_DIST_PATH: /app/frontend/dist
+      JSON_LOGS: ${JSON_LOGS:-true}
+      METRICS_ENABLED: ${METRICS_ENABLED:-true}
+      FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-127.0.0.1}
+    ports:
+      - "${RECURSIVE_APP_PORT:-8002}:8001"
+    volumes:
+      - note_rag_recursive_uploads:/app/data/uploads
+    tmpfs:
+      - /tmp
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/health/ready', timeout=3)",
+        ]
+      interval: 20s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+
 volumes:
   pgvector_data:
   note_rag_uploads:
+  pgvector_recursive_data:
+  note_rag_recursive_uploads:
