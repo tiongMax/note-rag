@@ -36,6 +36,11 @@ def hit(
         media_type="text/plain",
         position=0,
         text=text,
+        token_count=len(text.split()),
+        token_start=0,
+        token_end=len(text.split()),
+        char_start=0,
+        char_end=len(text),
         source_metadata=metadata or {},
         score=score,
     )
