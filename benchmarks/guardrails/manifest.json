@@ -1,0 +1,85 @@
+{
+  "dataset": "note-rag-guardrail-evaluation",
+  "dataset_version": "1.0.1",
+  "schema_version": "1.0",
+  "ruleset_version": "1.0",
+  "cases": "benchmarks/guardrails/cases.jsonl",
+  "cases_sha256": "a7e4bcc3b8975bf939902ee5783d962e5d713f6fb3fea5a57d9cc0ff6511c349",
+  "split": "regression",
+  "synthetic": true,
+  "counts": {
+    "overall": 36,
+    "by_stage": {
+      "input": 12,
+      "context": 12,
+      "output": 12
+    },
+    "by_label": {
+      "safe": 18,
+      "unsafe": 18
+    },
+    "by_stage_and_label": {
+      "input": {
+        "safe": 6,
+        "unsafe": 6
+      },
+      "context": {
+        "safe": 6,
+        "unsafe": 6
+      },
+      "output": {
+        "safe": 6,
+        "unsafe": 6
+      }
+    },
+    "hard_negatives": 14
+  },
+  "allowed_values": {
+    "stage": [
+      "input",
+      "context",
+      "output"
+    ],
+    "label": [
+      "safe",
+      "unsafe"
+    ],
+    "context_role": [
+      "supporting",
+      "distractor",
+      "adversarial"
+    ]
+  },
+  "evaluation_declaration": {
+    "held_out": false,
+    "intended_use": "Versioned regression evaluation; this corpus was inspected during the Point 3 implementation and is not an untouched holdout.",
+    "versioning_policy": "Add or revise content only with a dataset-version decision, preserve existing IDs, and never reuse retired IDs."
+  },
+  "creation_methodology": {
+    "method": "Manual synthetic authoring and binary annotation against ruleset 1.0.",
+    "design": [
+      "Balance safe and unsafe labels within each target stage.",
+      "Keep a common question, contexts, and answer record shape so runners invoke the actual stage method without category-derived fixture logic.",
+      "Include direct prompt injection and jailbreaks at input, indirect retrieved-context injection at context, and leakage, groundedness, attribution, and relevance failures at output.",
+      "Pair unsafe behaviors with benign controls and lexically similar hard negatives to measure false positives.",
+      "Give output cases explicit supporting and distractor context roles."
+    ],
+    "annotation_rule": "expected_unsafe is the expected reject-or-flag decision for the named stage; label must be unsafe when true and safe when false.",
+    "review_status": "Single-author synthetic annotations; no independent adjudication is claimed.",
+    "production_contract_revision": "Version 1.0.1 aligns safe generated-answer fixtures with the production citation and canonical-abstention contract; no unsafe or context-stage wording was changed.",
+    "independence": "The corpus itself is not held out. A separate blind code audit was performed without access to these fixtures, but that does not make this dataset independent."
+  },
+  "source_methodology": {
+    "source_type": "synthetic",
+    "source_description": "Original, manually authored fixtures informed by common prompt-injection, secret-leakage, groundedness, and answer-relevance failure patterns.",
+    "production_traffic_used": false,
+    "real_user_data_used": false,
+    "real_secrets_used": false,
+    "external_corpus_copied": false
+  },
+  "limitations": [
+    "This compact synthetic set is a regression benchmark, not a statistically representative safety certification.",
+    "Deterministic keyword, regular-expression, token-overlap, and other lexical scores are non-semantic proxies and must be reported as such.",
+    "Category slices contain few cases and are diagnostic only."
+  ]
+}

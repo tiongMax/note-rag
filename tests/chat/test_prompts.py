@@ -48,6 +48,8 @@ def test_prompt_includes_history_context_question_and_citation_rules() -> None:
     assert "[1] Source: notes.txt" in turns[-1].content
     assert "Current question" in turns[-1].content
     assert "only the supplied context" in GROUNDED_SYSTEM_PROMPT
+    assert "untrusted reference data" in GROUNDED_SYSTEM_PROMPT
+    assert "credentials" in GROUNDED_SYSTEM_PROMPT
     assert "[1]" in GROUNDED_SYSTEM_PROMPT
 
     first_hash = prompt_sha256(GROUNDED_SYSTEM_PROMPT, turns)

@@ -392,6 +392,11 @@ def test_chat_persists_history_and_citations(
     assert "generation_prompt_sha256" not in first.json()
     assert evaluation.status_code == 200
     assert len(evaluation.json()["generation_prompt_sha256"]) == 64
+    assert evaluation.json()["prompt_token_count"] <= (
+        evaluation.json()["prompt_token_budget"]
+    )
+    assert evaluation.json()["guardrails"]["input"]["action"] == "allow"
+    assert evaluation.json()["guardrails"]["context"]["action"] == "allow"
     generation_chunk_ids = {
         chunk["chunk_id"]
         for chunk in evaluation.json()["generation_context"]["chunks"]

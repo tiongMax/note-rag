@@ -1,12 +1,21 @@
 """FastAPI application factory."""
 
 import json
+import logging
 import threading
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, File, HTTPException, Response, UploadFile, status
+from fastapi import (
+    FastAPI,
+    File,
+    HTTPException,
+    Request,
+    Response,
+    UploadFile,
+    status,
+)
 from sqlalchemy import text
 from starlette.concurrency import run_in_threadpool
 from starlette.middleware.cors import CORSMiddleware
@@ -42,6 +51,7 @@ from note_rag.chat import (
     ChatProvider,
     ChatService,
     GeminiChatProvider,
+    GuardrailRejectionError,
 )
 from note_rag.chunking import (
     Chunker,
@@ -61,6 +71,7 @@ from note_rag.embeddings import (
     IndexingService,
     QueryEmbeddingProvider,
 )
+from note_rag.guardrails import GuardrailService
 from note_rag.ingest import (
     IngestionPipeline,
     IngestionWorker,
@@ -81,6 +92,32 @@ from note_rag.retrieval import (
     RetrievalService,
     SearchFilters,
 )
+
+logger = logging.getLogger(__name__)
+
+
+def _chat_http_exception(error: Exception) -> HTTPException:
+    """Map expected chat failures to stable, non-sensitive HTTP messages."""
+
+    if isinstance(error, GuardrailRejectionError):
+        return HTTPException(
+            status_code=422,
+            detail="Request rejected by input safety controls.",
+        )
+    if isinstance(error, LookupError):
+        return HTTPException(
+            status_code=404,
+            detail="Conversation not found.",
+        )
+    if isinstance(error, ValueError):
+        return HTTPException(
+            status_code=422,
+            detail="Chat request could not be processed.",
+        )
+    return HTTPException(
+        status_code=503,
+        detail="Chat service is temporarily unavailable.",
+    )
 
 
 def create_app(
@@ -164,7 +201,7 @@ def create_app(
         app_settings.chat_model,
         api_key=app_settings.gemini_api_key,
         temperature=app_settings.chat_temperature,
-        max_output_tokens=app_settings.chat_max_output_tokens,
+        max_output_tokens=app_settings.effective_chat_max_output_tokens,
     )
     chat_service = ChatService(
         resolved_database,
@@ -173,6 +210,22 @@ def create_app(
         token_counter=token_counter,
         history_max_messages=app_settings.chat_history_max_messages,
         history_max_tokens=app_settings.chat_history_max_tokens,
+        prompt_max_tokens=app_settings.chat_prompt_max_tokens,
+        prompt_reserve_tokens=app_settings.chat_prompt_reserve_tokens,
+        guardrails=(
+            GuardrailService(
+                token_counter=token_counter,
+                input_max_tokens=app_settings.chat_input_max_tokens,
+                output_max_tokens=app_settings.chat_output_hard_max_tokens,
+                groundedness_threshold=(
+                    app_settings.guardrail_groundedness_threshold
+                ),
+                relevance_threshold=app_settings.guardrail_relevance_threshold,
+            )
+            if app_settings.guardrails_enabled
+            else None
+        ),
+        decision_observer=metrics.record_guardrail_decision,
     )
     chunker_class: type[TokenChunker] | type[RecursiveChunker] = (
         RecursiveChunker
@@ -222,7 +275,7 @@ def create_app(
             if owns_database:
                 resolved_database.dispose()
 
-    production = app_settings.app_environment.lower() in {"production", "prod"}
+    production = app_settings.app_environment == "production"
     app = FastAPI(
         title=app_settings.app_name,
         version=__version__,
@@ -280,7 +333,21 @@ def create_app(
             "rerank_weight": app_settings.rerank_weight,
             "chat_model": resolved_chat_provider.model_name,
             "chat_temperature": app_settings.chat_temperature,
-            "chat_max_output_tokens": app_settings.chat_max_output_tokens,
+            "chat_max_output_tokens": (
+                app_settings.effective_chat_max_output_tokens
+            ),
+            "guardrails_enabled": app_settings.guardrails_enabled,
+            "chat_input_max_tokens": app_settings.chat_input_max_tokens,
+            "chat_prompt_max_tokens": app_settings.chat_prompt_max_tokens,
+            "chat_output_hard_max_tokens": (
+                app_settings.chat_output_hard_max_tokens
+            ),
+            "guardrail_groundedness_threshold": (
+                app_settings.guardrail_groundedness_threshold
+            ),
+            "guardrail_relevance_threshold": (
+                app_settings.guardrail_relevance_threshold
+            ),
             "embedding_cache_enabled": (
                 app_settings.cache_enabled
                 and app_settings.embedding_cache_enabled
@@ -606,12 +673,13 @@ def create_app(
                 conversation_id=request.conversation_id,
                 options=chat_options(request),
             )
-        except LookupError as error:
-            raise HTTPException(status_code=404, detail=str(error)) from error
-        except ValueError as error:
-            raise HTTPException(status_code=422, detail=str(error)) from error
-        except RuntimeError as error:
-            raise HTTPException(status_code=503, detail=str(error)) from error
+        except (
+            LookupError,
+            GuardrailRejectionError,
+            ValueError,
+            RuntimeError,
+        ) as error:
+            raise _chat_http_exception(error) from error
         response = ChatResponse.model_validate(result, from_attributes=True)
         if not request.include_generation_context:
             response.generation_context = None
@@ -622,19 +690,45 @@ def create_app(
         "/api/v1/chat/stream",
         tags=["chat"],
     )
-    async def stream_chat(request: ChatRequest) -> StreamingResponse:
+    async def stream_chat(
+        request: ChatRequest,
+        http_request: Request,
+    ) -> StreamingResponse:
+        try:
+            events = await run_in_threadpool(
+                chat_service.stream,
+                request.query,
+                conversation_id=request.conversation_id,
+                options=chat_options(request),
+            )
+        except (
+            LookupError,
+            GuardrailRejectionError,
+            ValueError,
+            RuntimeError,
+        ) as error:
+            raise _chat_http_exception(error) from error
+
+        request_id = getattr(http_request.state, "request_id", None)
+
         def stream_events():
             try:
-                for event in chat_service.stream(
-                    request.query,
-                    conversation_id=request.conversation_id,
-                    options=chat_options(request),
-                ):
+                for event in events:
                     payload = json.dumps(event.data, ensure_ascii=False)
                     yield f"event: {event.event}\ndata: {payload}\n\n"
-            except Exception as error:
+            except Exception:
+                logger.exception(
+                    "Chat stream failed after the response started",
+                    extra={"request_id": request_id},
+                )
                 payload = json.dumps(
-                    {"detail": str(error) or error.__class__.__name__},
+                    {
+                        "error": {
+                            "code": "stream_error",
+                            "message": "Chat stream failed.",
+                            "request_id": request_id,
+                        }
+                    },
                     ensure_ascii=False,
                 )
                 yield f"event: error\ndata: {payload}\n\n"

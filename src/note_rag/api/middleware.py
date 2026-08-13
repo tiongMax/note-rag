@@ -1,6 +1,7 @@
 """Security, request-limit, rate-limit, and access-log middleware."""
 
 import logging
+import math
 import re
 import secrets
 import threading
@@ -36,7 +37,10 @@ class RateLimiter:
             while entries and entries[0] <= cutoff:
                 entries.popleft()
             if len(entries) >= self.limit:
-                retry_after = max(1, int(entries[0] + self.window_seconds - current))
+                retry_after = max(
+                    1,
+                    math.ceil(entries[0] + self.window_seconds - current),
+                )
                 return False, retry_after
             entries.append(current)
             return True, 0
@@ -50,6 +54,10 @@ def install_http_middleware(
     limiter = RateLimiter(
         settings.rate_limit_requests,
         settings.rate_limit_window_seconds,
+    )
+    chat_limiter = RateLimiter(
+        settings.chat_rate_limit_requests,
+        settings.chat_rate_limit_window_seconds,
     )
 
     @app.middleware("http")
@@ -69,6 +77,9 @@ def install_http_middleware(
         response: Response | None = None
         route = request.url.path
         try:
+            # This is an early rejection for declared lengths only. Chunked
+            # request bodies have no Content-Length, so production deployments
+            # must also enforce the byte limit at the trusted reverse proxy.
             content_length = request.headers.get("content-length")
             if (
                 content_length is not None
@@ -86,19 +97,7 @@ def install_http_middleware(
                 )
             else:
                 client = request.client.host if request.client else "unknown"
-                rate_limited = _rate_limited_path(request)
-                allowed, retry_after = (
-                    limiter.allow(client) if rate_limited else (True, 0)
-                )
-                if not allowed:
-                    response = error_response(
-                        request,
-                        status_code=429,
-                        code="rate_limit_exceeded",
-                        message="Too many requests. Please retry later.",
-                        headers={"Retry-After": str(retry_after)},
-                    )
-                elif _requires_authentication(request) and not _authenticated(
+                if _requires_authentication(request) and not _authenticated(
                     request,
                     settings.api_auth_token,
                 ):
@@ -110,9 +109,34 @@ def install_http_middleware(
                         headers={"WWW-Authenticate": "Bearer"},
                     )
                 else:
-                    response = await call_next(request)
-                    matched_route = request.scope.get("route")
-                    route = getattr(matched_route, "path", route)
+                    allowed, retry_after = (
+                        limiter.allow(client)
+                        if _rate_limited_path(request)
+                        else (True, 0)
+                    )
+                    if not allowed:
+                        response = error_response(
+                            request,
+                            status_code=429,
+                            code="rate_limit_exceeded",
+                            message="Too many requests. Please retry later.",
+                            headers={"Retry-After": str(retry_after)},
+                        )
+                    elif (
+                    _chat_rate_limited_path(request)
+                    and not (chat_result := chat_limiter.allow(client))[0]
+                    ):
+                        response = error_response(
+                            request,
+                            status_code=429,
+                            code="chat_rate_limit_exceeded",
+                            message="Too many chat requests. Please retry later.",
+                            headers={"Retry-After": str(chat_result[1])},
+                        )
+                    else:
+                        response = await call_next(request)
+                        matched_route = request.scope.get("route")
+                        route = getattr(matched_route, "path", route)
             return response
         finally:
             status_code = response.status_code if response is not None else 500
@@ -158,7 +182,14 @@ def _authenticated(request: Request, expected_token: str) -> bool:
 
 
 def _rate_limited_path(request: Request) -> bool:
-    return request.url.path.startswith("/api/") or request.url.path == "/health/ready"
+    return request.method != "OPTIONS" and request.url.path.startswith("/api/")
+
+
+def _chat_rate_limited_path(request: Request) -> bool:
+    return request.method == "POST" and request.url.path in {
+        "/api/v1/chat",
+        "/api/v1/chat/stream",
+    }
 
 
 def _set_security_headers(response: Response, request_id: str) -> None:

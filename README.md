@@ -342,6 +342,25 @@ Reuse the returned `conversation_id` in subsequent requests to include
 persisted history. Use `POST /api/v1/chat/stream` for server-sent events; the
 stream emits `metadata`, `delta`, and `done` events.
 
+## RAG guardrails
+
+Grounded chat applies deterministic defense-in-depth checks around generation:
+
+- direct prompt-injection and oversized inputs are rejected before retrieval,
+  provider calls, or persistence;
+- retrieved chunk text, filenames, and metadata are treated as untrusted and
+  matching chunks are removed before prompt construction;
+- complete model output is buffered, then checked for prompt/credential
+  leakage, citation validity, token limits, and explicitly lexical support and
+  relevance proxies before either REST or SSE delivery;
+- separate whole-prompt, output, request-size, broad API-rate, and chat-rate
+  budgets limit resource use.
+
+These local rules and lexical overlap scores are inexpensive heuristics, not a
+semantic safety or factuality guarantee. Their synthetic held-out evaluation
+and reproducible latency runner live under `benchmarks/guardrails` and
+`scripts/run_guardrail_benchmark.py`.
+
 ## API overview
 
 | Method | Endpoint | Purpose |
@@ -420,6 +439,7 @@ health checks, reverse-proxy guidance, backups, upgrades, and rollback.
 │   ├── chunking/             Token counting and document chunking
 │   ├── context/              Reranking and context construction
 │   ├── embeddings/           Embedding providers and indexing
+│   ├── guardrails/           Local input, context, and output controls
 │   ├── ingest/               Parsing, storage, pipeline, and worker
 │   ├── persistence/          Database models and repositories
 │   └── retrieval/            Keyword, vector, and hybrid retrieval

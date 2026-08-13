@@ -7,6 +7,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
 
 from note_rag.chunking.models import Chunk
+from note_rag.guardrails import GuardrailAction, GuardrailStage
 from note_rag.persistence import (
     ChatRole,
     DocumentStatus,
@@ -14,6 +15,8 @@ from note_rag.persistence import (
     IngestionJobStatus,
 )
 from note_rag.retrieval import SearchMode
+
+CHAT_QUERY_MAX_CHARACTERS = 8_192
 
 
 class ChunkTextRequest(BaseModel):
@@ -190,6 +193,10 @@ class ContextResponse(BaseModel):
 
 
 class ChatRequest(ContextRequest):
+    query: str = Field(
+        min_length=1,
+        max_length=CHAT_QUERY_MAX_CHARACTERS,
+    )
     conversation_id: uuid.UUID | None = None
     include_generation_context: bool = False
 
@@ -205,6 +212,22 @@ class CitationResponse(BaseModel):
     source_metadata: dict[str, Any]
 
 
+class GuardrailDecisionResponse(BaseModel):
+    stage: GuardrailStage
+    action: GuardrailAction
+    reason_codes: tuple[str, ...]
+    latency_ms: float
+
+
+class ChatGuardrailResponse(BaseModel):
+    input: GuardrailDecisionResponse
+    context: GuardrailDecisionResponse
+    output: GuardrailDecisionResponse
+    filtered_context_chunks: int
+    lexical_groundedness_proxy: float | None
+    lexical_relevance_proxy: float | None
+
+
 class ChatResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -215,6 +238,9 @@ class ChatResponse(BaseModel):
     model_name: str
     generation_context: ContextResponse | None = None
     generation_prompt_sha256: str | None = None
+    prompt_token_count: int
+    prompt_token_budget: int
+    guardrails: ChatGuardrailResponse | None = None
 
 
 class ChatMessageResponse(BaseModel):

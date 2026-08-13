@@ -9,7 +9,15 @@ def _env_bool(name: str, default: bool) -> bool:
     value = os.getenv(name)
     if value is None:
         return default
-    return value.strip().lower() in {"1", "true", "yes", "on"}
+    normalized = value.strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    raise ValueError(
+        f"{name} must be a boolean value "
+        "(one of: true, false, 1, 0, yes, no, on, off)"
+    )
 
 
 def _env_csv(name: str, default: tuple[str, ...]) -> tuple[str, ...]:
@@ -58,6 +66,16 @@ class ApiSettings:
     chat_max_output_tokens: int = 1024
     chat_history_max_messages: int = 20
     chat_history_max_tokens: int = 2000
+    guardrails_enabled: bool = True
+    allow_unguarded_chat_in_production: bool = False
+    chat_input_max_tokens: int = 512
+    chat_prompt_max_tokens: int = 4096
+    chat_prompt_reserve_tokens: int = 128
+    chat_output_hard_max_tokens: int = 1024
+    guardrail_groundedness_threshold: float = 0.45
+    guardrail_relevance_threshold: float = 0.05
+    chat_rate_limit_requests: int = 30
+    chat_rate_limit_window_seconds: int = 60
     background_worker_enabled: bool = True
     worker_max_attempts: int = 3
     worker_retry_backoff_seconds: float = 2.0
@@ -78,6 +96,21 @@ class ApiSettings:
     metrics_enabled: bool = True
 
     def __post_init__(self) -> None:
+        environment_aliases = {
+            "dev": "development",
+            "development": "development",
+            "test": "test",
+            "testing": "test",
+            "prod": "production",
+            "production": "production",
+        }
+        supplied_environment = self.app_environment.strip().lower()
+        environment = environment_aliases.get(supplied_environment)
+        if environment is None:
+            raise ValueError(
+                "APP_ENVIRONMENT must be one of: development, test, production"
+            )
+        object.__setattr__(self, "app_environment", environment)
         if self.chunking_strategy not in {"fixed", "recursive"}:
             raise ValueError(
                 "CHUNKING_STRATEGY must be either 'fixed' or 'recursive'"
@@ -114,6 +147,12 @@ class ApiSettings:
             "RETRIEVAL_CACHE_TTL_SECONDS": self.retrieval_cache_ttl_seconds,
             "CROSS_ENCODER_BATCH_SIZE": self.cross_encoder_batch_size,
             "CHAT_MAX_OUTPUT_TOKENS": self.chat_max_output_tokens,
+            "CHAT_INPUT_MAX_TOKENS": self.chat_input_max_tokens,
+            "CHAT_PROMPT_MAX_TOKENS": self.chat_prompt_max_tokens,
+            "CHAT_PROMPT_RESERVE_TOKENS": self.chat_prompt_reserve_tokens,
+            "CHAT_OUTPUT_HARD_MAX_TOKENS": self.chat_output_hard_max_tokens,
+            "CHAT_RATE_LIMIT_REQUESTS": self.chat_rate_limit_requests,
+            "CHAT_RATE_LIMIT_WINDOW_SECONDS": self.chat_rate_limit_window_seconds,
             "MAX_REQUEST_BYTES": self.max_request_bytes,
             "RATE_LIMIT_REQUESTS": self.rate_limit_requests,
             "RATE_LIMIT_WINDOW_SECONDS": self.rate_limit_window_seconds,
@@ -122,6 +161,21 @@ class ApiSettings:
         for name, value in positive_values.items():
             if value <= 0:
                 raise ValueError(f"{name} must be greater than zero")
+        if self.chat_prompt_reserve_tokens >= self.chat_prompt_max_tokens:
+            raise ValueError(
+                "CHAT_PROMPT_RESERVE_TOKENS must be smaller than "
+                "CHAT_PROMPT_MAX_TOKENS"
+            )
+        for name, value in {
+            "GUARDRAIL_GROUNDEDNESS_THRESHOLD": (
+                self.guardrail_groundedness_threshold
+            ),
+            "GUARDRAIL_RELEVANCE_THRESHOLD": (
+                self.guardrail_relevance_threshold
+            ),
+        }.items():
+            if not 0.0 <= value <= 1.0:
+                raise ValueError(f"{name} must be between zero and one")
         if self.max_request_bytes < self.max_upload_bytes:
             raise ValueError(
                 "MAX_REQUEST_BYTES must be at least MAX_UPLOAD_BYTES"
@@ -134,7 +188,7 @@ class ApiSettings:
             "DEBUG",
         }:
             raise ValueError("LOG_LEVEL is invalid")
-        if self.app_environment.lower() in {"production", "prod"}:
+        if self.app_environment == "production":
             if not self.gemini_api_key:
                 raise ValueError("GEMINI_API_KEY is required in production")
             if len(self.api_auth_token) < 24:
@@ -146,6 +200,23 @@ class ApiSettings:
                 raise ValueError(
                     "ALLOWED_HOSTS cannot contain '*' in production"
                 )
+            if (
+                not self.guardrails_enabled
+                and not self.allow_unguarded_chat_in_production
+            ):
+                raise ValueError(
+                    "GUARDRAILS_ENABLED cannot be disabled in production unless "
+                    "ALLOW_UNGUARDED_CHAT_IN_PRODUCTION is explicitly enabled"
+                )
+
+    @property
+    def effective_chat_max_output_tokens(self) -> int:
+        """Return the generation cap shared by the provider and output guard."""
+
+        return min(
+            self.chat_max_output_tokens,
+            self.chat_output_hard_max_tokens,
+        )
 
     @classmethod
     def from_env(cls) -> "ApiSettings":
@@ -233,6 +304,35 @@ class ApiSettings:
             ),
             chat_history_max_tokens=int(
                 os.getenv("CHAT_HISTORY_MAX_TOKENS", "2000")
+            ),
+            guardrails_enabled=_env_bool("GUARDRAILS_ENABLED", True),
+            allow_unguarded_chat_in_production=_env_bool(
+                "ALLOW_UNGUARDED_CHAT_IN_PRODUCTION",
+                False,
+            ),
+            chat_input_max_tokens=int(
+                os.getenv("CHAT_INPUT_MAX_TOKENS", "512")
+            ),
+            chat_prompt_max_tokens=int(
+                os.getenv("CHAT_PROMPT_MAX_TOKENS", "4096")
+            ),
+            chat_prompt_reserve_tokens=int(
+                os.getenv("CHAT_PROMPT_RESERVE_TOKENS", "128")
+            ),
+            chat_output_hard_max_tokens=int(
+                os.getenv("CHAT_OUTPUT_HARD_MAX_TOKENS", "1024")
+            ),
+            guardrail_groundedness_threshold=float(
+                os.getenv("GUARDRAIL_GROUNDEDNESS_THRESHOLD", "0.45")
+            ),
+            guardrail_relevance_threshold=float(
+                os.getenv("GUARDRAIL_RELEVANCE_THRESHOLD", "0.05")
+            ),
+            chat_rate_limit_requests=int(
+                os.getenv("CHAT_RATE_LIMIT_REQUESTS", "30")
+            ),
+            chat_rate_limit_window_seconds=int(
+                os.getenv("CHAT_RATE_LIMIT_WINDOW_SECONDS", "60")
             ),
             background_worker_enabled=_env_bool(
                 "BACKGROUND_WORKER_ENABLED",

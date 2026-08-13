@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from note_rag.context import ContextPackage
+from note_rag.guardrails import GuardrailDecision
 
 
 @dataclass(frozen=True, slots=True)
@@ -34,6 +35,18 @@ class Citation:
 
 
 @dataclass(frozen=True, slots=True)
+class ChatGuardrailTrace:
+    """Auditable local decisions applied to one completed chat request."""
+
+    input: GuardrailDecision
+    context: GuardrailDecision
+    output: GuardrailDecision
+    filtered_context_chunks: int
+    lexical_groundedness_proxy: float | None
+    lexical_relevance_proxy: float | None
+
+
+@dataclass(frozen=True, slots=True)
 class ChatResult:
     conversation_id: uuid.UUID
     message_id: uuid.UUID
@@ -42,6 +55,9 @@ class ChatResult:
     model_name: str
     generation_context: ContextPackage
     generation_prompt_sha256: str
+    prompt_token_count: int
+    prompt_token_budget: int
+    guardrails: ChatGuardrailTrace | None = None
 
 
 @dataclass(frozen=True, slots=True)

@@ -41,6 +41,25 @@ Open `http://127.0.0.1:8001`. The interface prompts for `API_AUTH_TOKEN` and
 keeps it in browser session storage. It is not persisted after the browser
 session ends.
 
+## Guardrail controls
+
+Production chat defaults to local input, retrieved-context, and output
+guardrails. Configure `CHAT_INPUT_MAX_TOKENS`, `CHAT_PROMPT_MAX_TOKENS`,
+`CHAT_PROMPT_RESERVE_TOKENS`, `CHAT_OUTPUT_HARD_MAX_TOKENS`,
+`CHAT_RATE_LIMIT_REQUESTS`, and `CHAT_RATE_LIMIT_WINDOW_SECONDS` to match the
+provider and deployment capacity. The groundedness and relevance thresholds
+are lexical proxies controlled by `GUARDRAIL_GROUNDEDNESS_THRESHOLD` and
+`GUARDRAIL_RELEVANCE_THRESHOLD`; they are not semantic judges.
+`GUARDRAILS_ENABLED=false` is intended for controlled comparisons, not normal
+production deployment. Production startup rejects that setting unless the
+explicit emergency break-glass setting
+`ALLOW_UNGUARDED_CHAT_IN_PRODUCTION=true` is also present. Treat every use as
+a security incident, time-bound it, and restore guardrails immediately.
+
+The bundled generic and chat limiters are per process and keyed by client IP.
+Multi-replica deployments need an external shared limiter at the gateway to
+enforce one global quota.
+
 Inspect logs:
 
 ```powershell

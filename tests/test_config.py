@@ -90,3 +90,67 @@ def test_accepts_secure_production_configuration() -> None:
     )
 
     assert settings.app_environment == "production"
+
+
+def test_boolean_environment_values_are_strict(monkeypatch) -> None:
+    monkeypatch.setenv("APP_ENVIRONMENT", "development")
+    monkeypatch.setenv("GUARDRAILS_ENABLED", "ture")
+
+    with pytest.raises(ValueError, match="GUARDRAILS_ENABLED must be a boolean"):
+        ApiSettings.from_env()
+
+
+def test_boolean_environment_values_accept_explicit_false(monkeypatch) -> None:
+    monkeypatch.setenv("APP_ENVIRONMENT", "development")
+    monkeypatch.setenv("GUARDRAILS_ENABLED", "off")
+
+    assert ApiSettings.from_env().guardrails_enabled is False
+
+
+def test_normalizes_and_validates_application_environment() -> None:
+    settings = ApiSettings(
+        app_environment="  ProD  ",
+        gemini_api_key="configured",
+        api_auth_token="a-production-token-with-adequate-length",
+        allowed_hosts=("rag.example.com",),
+    )
+
+    assert settings.app_environment == "production"
+    with pytest.raises(ValueError, match="APP_ENVIRONMENT"):
+        ApiSettings(app_environment="staging")
+
+
+def test_production_requires_guardrails_without_explicit_break_glass() -> None:
+    production = {
+        "app_environment": "production",
+        "gemini_api_key": "configured",
+        "api_auth_token": "a-production-token-with-adequate-length",
+        "allowed_hosts": ("rag.example.com",),
+        "guardrails_enabled": False,
+    }
+
+    with pytest.raises(ValueError, match="ALLOW_UNGUARDED_CHAT_IN_PRODUCTION"):
+        ApiSettings(**production)
+
+    settings = ApiSettings(
+        **production,
+        allow_unguarded_chat_in_production=True,
+    )
+    assert settings.guardrails_enabled is False
+
+
+@pytest.mark.parametrize(
+    ("provider_max", "hard_max", "expected"),
+    [(2048, 512, 512), (256, 512, 256)],
+)
+def test_effective_chat_output_limit_uses_stricter_cap(
+    provider_max: int,
+    hard_max: int,
+    expected: int,
+) -> None:
+    settings = ApiSettings(
+        chat_max_output_tokens=provider_max,
+        chat_output_hard_max_tokens=hard_max,
+    )
+
+    assert settings.effective_chat_max_output_tokens == expected
