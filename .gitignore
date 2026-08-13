@@ -234,6 +234,8 @@ __marimo__/
 !/benchmarks/results/point2-evaluation-report.md
 !/benchmarks/results/point3-guardrails-report.json
 !/benchmarks/results/point3-guardrails-report.md
+!/benchmarks/results/point4-conversation-memory-report.json
+!/benchmarks/results/point4-conversation-memory-report.md
 /tmp/
 /.worktrees/
 

@@ -1,0 +1,55 @@
+{
+  "schema_version": "1.0",
+  "created_at": "2026-08-13T14:44:08Z",
+  "implementation_commit": "4b00be644ddd24cd47381b6b633f23b82b8a56c3",
+  "implementation_dirty": false,
+  "memory_source_sha256": "b0bcd9364fc0a27cf70b38dbd42637347498626a6c34d029b99cac3cf55d8270",
+  "dataset": {
+    "kind": "synthetic regression corpus",
+    "version": "1.0.0",
+    "held_out": false,
+    "independently_adjudicated": false,
+    "case_count": 50,
+    "conversation_turns_before_query": 16,
+    "cases_sha256": "54a56cdf9a0decf165f50152c9e57890c13ad84ff11e9545fe3661d9e6393f73",
+    "manifest_sha256": "7e5ac8c356341816506fdcc6c7cc85117bd300e01cfa84841c5b10fe3ec3ee9a"
+  },
+  "configuration": {
+    "history_budget": 2000,
+    "verbatim_recent_turns": 4,
+    "semantic_memory_k": 2,
+    "semantic_minimum_cosine_similarity": 0.25,
+    "summary_max_tokens": 64,
+    "embedding_model": "sentence-transformers/all-MiniLM-L6-v2",
+    "embedding_dimension": 384,
+    "embedding_model_snapshot": "1110a243fdf4706b3f48f1d95db1a4f5529b4d41",
+    "previous_recent_only_max_messages": 20
+  },
+  "metrics": {
+    "scope": "deterministic subject and exact-fact retention in assembled history; not model-generated answer accuracy",
+    "full_history_fact_retention_accuracy": 1.0,
+    "previous_recent_only_fact_retention_accuracy": 0.0,
+    "memory_fact_retention_accuracy": 1.0,
+    "memory_accuracy_delta_percentage_points_vs_full": 0.0,
+    "mean_full_history_tokens": 222.08,
+    "mean_memory_history_tokens": 129.94,
+    "mean_token_reduction": 0.4149374395204915,
+    "memory_failure_ids": []
+  },
+  "verification": {
+    "full_pytest_passed": 248,
+    "full_pytest_skipped_without_database_url": 6,
+    "postgres_integration_passed": 6,
+    "worker_race_repeat_passed": 5,
+    "migration_empty_to_head": "passed",
+    "migration_point4_downgrade_upgrade": "passed",
+    "ruff": "passed",
+    "pyright_errors": 0,
+    "frontend_build": "passed",
+    "compose_config": "passed"
+  },
+  "raw_artifact_sha256": {
+    "results": "2b1bc5a8349e3c4daf883052441d2eb2ffb28a7f501703361bc9977e78adb3b5",
+    "summary": "8b53d34449923a695a59bae1fe350df5f2fee88016d066a4bd313bba867baf87"
+  }
+}
