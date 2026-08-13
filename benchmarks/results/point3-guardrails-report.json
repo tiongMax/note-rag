@@ -1,0 +1,72 @@
+{
+  "schema_version": "1.0",
+  "created_at": "2026-08-13T13:55:37Z",
+  "implementation_commit": "e5ff3a4740ab5ea53bb98bf21ed8418d0854602d",
+  "implementation_dirty": false,
+  "implementation_combined_source_sha256": "864bf1d7563de7019bb44d47b8cc94c935f46de11599ba823fd522ff37bdb478",
+  "dataset": {
+    "kind": "synthetic regression corpus",
+    "version": "1.0.1",
+    "held_out": false,
+    "independently_adjudicated": false,
+    "case_count": 36,
+    "unsafe_case_count": 18,
+    "safe_case_count": 18,
+    "hard_negative_count": 14,
+    "cases_sha256": "a7e4bcc3b8975bf939902ee5783d962e5d713f6fb3fea5a57d9cc0ff6511c349",
+    "manifest_sha256": "e137a8c07d7143285b0aba5b4acaa2ffcf4825b98c26249d689940f1c8e915fb"
+  },
+  "classification": {
+    "scope": "deterministic rule and lexical proxy regression classification; not a semantic safety evaluation",
+    "true_positive": 18,
+    "false_positive": 1,
+    "true_negative": 17,
+    "false_negative": 0,
+    "accuracy": 0.9722222222222222,
+    "precision": 0.9473684210526315,
+    "recall": 1.0,
+    "specificity": 0.9444444444444444,
+    "f1": 0.972972972972973,
+    "false_positive_ids": [
+      "guard-output-safe-003"
+    ],
+    "false_negative_ids": []
+  },
+  "local_guardrail_latency": {
+    "scope": "in-process input, context, and output guardrail stages only; excludes HTTP, database, retrieval, model/provider, network, and persistence latency",
+    "clock": "time.perf_counter_ns",
+    "iterations_per_fixture": 10000,
+    "warmup_iterations_per_fixture": 1000,
+    "normal": {
+      "question_tokens": 9,
+      "context_body_tokens": 20,
+      "context_chunks": 2,
+      "answer_tokens": 20,
+      "median_ms": 0.5823,
+      "p95_ms": 1.0016499999999993,
+      "p99_ms": 1.1968080000000003
+    },
+    "max": {
+      "question_tokens": 512,
+      "context_body_tokens": 1200,
+      "context_chunks": 8,
+      "answer_tokens": 1024,
+      "median_ms": 22.9477,
+      "p95_ms": 35.92976499999999,
+      "p99_ms": 45.599840000000015
+    }
+  },
+  "verification": {
+    "full_pytest_passed": 233,
+    "full_pytest_skipped": 6,
+    "postgres_integration_passed": 6,
+    "ruff": "passed",
+    "pyright_errors": 0,
+    "frontend_build": "passed",
+    "compose_config": "passed"
+  },
+  "raw_artifact_sha256": {
+    "results": "e56ad53119963084ccb6c43e85b96e4890262a2248df806ba6310e304b9c7286",
+    "summary": "5462adfa022d38f05311e167901cb5ebcf5712dfecedd40e5b6367ce98678a9d"
+  }
+}
