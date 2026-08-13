@@ -44,6 +44,7 @@ class RetrievalResult:
     query: str
     mode: SearchMode
     hits: list[RetrievalHit]
+    lexical_backend: str = "bm25"
     embedding_cache_status: str = "disabled"
     retrieval_cache_status: str = "disabled"
     corpus_version: int = 0

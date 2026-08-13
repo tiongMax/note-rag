@@ -40,6 +40,11 @@ def test_stores_and_inspects_documents_and_chunks(session: Session) -> None:
     assert document.chunk_count == 2
     assert document.token_count == 5
     assert stored_chunks[0].source_metadata == {"source_id": "lesson.md"}
+    assert stored_chunks[0].lexical_token_count == 3
+    assert {
+        term.term: term.term_frequency
+        for term in stored_chunks[0].lexical_terms
+    } == {"zero": 1, "one": 1, "two": 1}
 
 
 def test_tracks_ingestion_job_status(session: Session) -> None:

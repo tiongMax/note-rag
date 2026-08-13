@@ -21,6 +21,7 @@ def add_chunk(
     text: str,
     embedding: list[float],
     metadata: dict[str, object],
+    lexical_token_count: int = 0,
 ) -> None:
     with database.session() as session:
         document = DocumentRepository(session).add(
@@ -38,6 +39,7 @@ def add_chunk(
                 char_end=len(text),
                 source_metadata=metadata,
                 embedding=embedding,
+                lexical_token_count=lexical_token_count,
             )
         )
 
@@ -118,3 +120,54 @@ def test_keyword_mode_does_not_embed(database: Database) -> None:
     )
 
     assert len(result.hits) == 1
+
+
+def test_bm25_uses_term_saturation_and_document_length(database: Database) -> None:
+    add_chunk(
+        database,
+        filename="short.txt",
+        media_type="text/plain",
+        text="apple apple",
+        embedding=[1.0, *([0.0] * 767)],
+        metadata={},
+    )
+    add_chunk(
+        database,
+        filename="long.txt",
+        media_type="text/plain",
+        text="apple filler filler filler filler filler",
+        embedding=[1.0, *([0.0] * 767)],
+        metadata={},
+    )
+
+    result = RetrievalService(
+        database,
+        QueryEmbeddingProvider(),
+        lexical_backend="bm25",
+    ).search("apple", mode=SearchMode.KEYWORD)
+
+    assert [hit.filename for hit in result.hits] == ["short.txt", "long.txt"]
+    assert result.lexical_backend == "bm25"
+    assert result.hits[0].keyword_score is not None
+    assert result.hits[1].keyword_score is not None
+    assert result.hits[0].keyword_score > result.hits[1].keyword_score
+
+
+def test_can_select_postgres_fts_compatibility_backend(database: Database) -> None:
+    add_chunk(
+        database,
+        filename="fts.txt",
+        media_type="text/plain",
+        text="exact lexical marker",
+        embedding=[1.0, *([0.0] * 767)],
+        metadata={},
+    )
+
+    result = RetrievalService(
+        database,
+        QueryEmbeddingProvider(),
+        lexical_backend="postgres_fts",
+    ).search("marker", mode=SearchMode.KEYWORD)
+
+    assert result.lexical_backend == "postgres_fts"
+    assert [hit.filename for hit in result.hits] == ["fts.txt"]

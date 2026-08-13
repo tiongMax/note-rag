@@ -174,7 +174,39 @@ class ChunkRecord(TimestampMixin, Base):
     embedding_model: Mapped[str | None] = mapped_column(String(255))
     embedded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
+    lexical_token_count: Mapped[int] = mapped_column(
+        Integer,
+        default=0,
+        nullable=False,
+    )
+
     document: Mapped[Document] = relationship(back_populates="chunks")
+    lexical_terms: Mapped[list["ChunkLexicalTerm"]] = relationship(
+        back_populates="chunk",
+        cascade="all, delete-orphan",
+    )
+
+
+class ChunkLexicalTerm(Base):
+    """Persisted inverted-index statistics for exact Okapi BM25 ranking."""
+
+    __tablename__ = "chunk_lexical_terms"
+    __table_args__ = (
+        CheckConstraint(
+            "term_frequency > 0",
+            name="ck_chunk_lexical_terms_frequency",
+        ),
+        Index("ix_chunk_lexical_terms_term", "term"),
+    )
+
+    chunk_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("chunks.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    term: Mapped[str] = mapped_column(String(128), primary_key=True)
+    term_frequency: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    chunk: Mapped[ChunkRecord] = relationship(back_populates="lexical_terms")
 
 
 chunk_text_fts_index = Index(

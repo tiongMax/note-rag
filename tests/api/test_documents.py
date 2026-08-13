@@ -301,6 +301,8 @@ def test_searches_uploaded_chunks(database: Database, tmp_path: Path) -> None:
 
     assert upload.status_code == 201
     assert search.status_code == 200
+    assert search.headers["x-lexical-backend"] == "bm25"
+    assert search.json()["lexical_backend"] == "bm25"
     assert search.json()["hits"][0]["filename"] == "retrieval.txt"
     assert search.json()["hits"][0]["char_start"] == 0
     assert search.json()["hits"][0]["char_end"] == len("apples grow in")

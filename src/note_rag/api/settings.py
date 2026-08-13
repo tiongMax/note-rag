@@ -36,6 +36,9 @@ class ApiSettings:
     embedding_batch_size: int = 32
     retrieval_candidate_multiplier: int = 4
     retrieval_rrf_k: int = 60
+    retrieval_lexical_backend: str = "bm25"
+    retrieval_bm25_k1: float = 1.5
+    retrieval_bm25_b: float = 0.75
     cache_enabled: bool = True
     embedding_cache_enabled: bool = True
     retrieval_cache_enabled: bool = True
@@ -82,6 +85,10 @@ class ApiSettings:
             raise ValueError(
                 "RERANKER_BACKEND must be either 'lexical' or 'cross_encoder'"
             )
+        if self.retrieval_lexical_backend not in {"bm25", "postgres_fts"}:
+            raise ValueError(
+                "RETRIEVAL_LEXICAL_BACKEND must be 'bm25' or 'postgres_fts'"
+            )
         if self.embedding_backend not in {"gemini", "deterministic"}:
             raise ValueError(
                 "EMBEDDING_BACKEND must be either 'gemini' or 'deterministic'"
@@ -94,6 +101,10 @@ class ApiSettings:
             raise ValueError(
                 "CHUNK_OVERLAP must be non-negative and smaller than CHUNK_SIZE"
             )
+        if self.retrieval_bm25_k1 <= 0:
+            raise ValueError("RETRIEVAL_BM25_K1 must be greater than zero")
+        if not 0 <= self.retrieval_bm25_b <= 1:
+            raise ValueError("RETRIEVAL_BM25_B must be between zero and one")
         positive_values = {
             "MAX_UPLOAD_BYTES": self.max_upload_bytes,
             "EMBEDDING_DIMENSION": self.embedding_dimension,
@@ -163,6 +174,12 @@ class ApiSettings:
                 os.getenv("RETRIEVAL_CANDIDATE_MULTIPLIER", "4")
             ),
             retrieval_rrf_k=int(os.getenv("RETRIEVAL_RRF_K", "60")),
+            retrieval_lexical_backend=os.getenv(
+                "RETRIEVAL_LEXICAL_BACKEND",
+                "bm25",
+            ).strip().lower(),
+            retrieval_bm25_k1=float(os.getenv("RETRIEVAL_BM25_K1", "1.5")),
+            retrieval_bm25_b=float(os.getenv("RETRIEVAL_BM25_B", "0.75")),
             cache_enabled=_env_bool("CACHE_ENABLED", True),
             embedding_cache_enabled=_env_bool(
                 "EMBEDDING_CACHE_ENABLED",

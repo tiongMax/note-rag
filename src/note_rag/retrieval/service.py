@@ -31,16 +31,28 @@ class RetrievalService:
         *,
         candidate_multiplier: int = 4,
         rrf_k: int = 60,
+        lexical_backend: str = "bm25",
+        bm25_k1: float = 1.5,
+        bm25_b: float = 0.75,
         cache: PersistentRetrievalCache | None = None,
     ) -> None:
         if candidate_multiplier <= 0:
             raise ValueError("candidate_multiplier must be greater than zero")
         if rrf_k < 0:
             raise ValueError("rrf_k cannot be negative")
+        if lexical_backend not in {"bm25", "postgres_fts"}:
+            raise ValueError("lexical_backend must be 'bm25' or 'postgres_fts'")
+        if bm25_k1 <= 0:
+            raise ValueError("bm25_k1 must be greater than zero")
+        if not 0 <= bm25_b <= 1:
+            raise ValueError("bm25_b must be between zero and one")
         self.database = database
         self.embedding_provider = embedding_provider
         self.candidate_multiplier = candidate_multiplier
         self.rrf_k = rrf_k
+        self.lexical_backend = lexical_backend
+        self.bm25_k1 = bm25_k1
+        self.bm25_b = bm25_b
         self.cache = cache
 
     def search(
@@ -75,6 +87,9 @@ class RetrievalService:
                     model_name=self.embedding_provider.model_name,
                     candidate_multiplier=self.candidate_multiplier,
                     rrf_k=self.rrf_k,
+                    lexical_backend=self.lexical_backend,
+                    bm25_k1=self.bm25_k1,
+                    bm25_b=self.bm25_b,
                 )
             )
             if cached is not None:
@@ -102,15 +117,22 @@ class RetrievalService:
                 if query_vector is not None
                 else []
             )
-            keyword_hits = (
-                repository.keyword_search(
+            if not needs_keyword:
+                keyword_hits = []
+            elif self.lexical_backend == "bm25":
+                keyword_hits = repository.bm25_search(
+                    query,
+                    limit=candidate_limit,
+                    filters=resolved_filters,
+                    k1=self.bm25_k1,
+                    b=self.bm25_b,
+                )
+            else:
+                keyword_hits = repository.keyword_search(
                     query,
                     limit=candidate_limit,
                     filters=resolved_filters,
                 )
-                if needs_keyword
-                else []
-            )
 
         if mode is SearchMode.VECTOR:
             hits = [
@@ -128,6 +150,7 @@ class RetrievalService:
             query=query,
             mode=mode,
             hits=hits[:top_k],
+            lexical_backend=self.lexical_backend,
             embedding_cache_status=embedding_cache_status,
             retrieval_cache_status=cache_status,
             corpus_version=corpus_version,

@@ -26,6 +26,14 @@ class FakeClient:
         path: str,
         payload: dict[str, Any] | None = None,
     ) -> Any:
+        if method == "GET" and path == "/health":
+            return {
+                "status": "ok",
+                "chunking_strategy": "fixed",
+                "lexical_backend": "bm25",
+                "embedding_cache_enabled": True,
+                "retrieval_cache_enabled": False,
+            }
         if method == "GET" and path == "/api/v1/documents":
             return [
                 {
@@ -115,6 +123,8 @@ def test_runs_one_query_and_records_system_counts() -> None:
     assert summary["chunk_count"] == 10
     assert summary["document_token_count"] == 1000
     assert summary["embedding_budget_tokens"] == 1000
+    assert summary["runtime_embedding_cache_enabled"] is True
+    assert summary["runtime_retrieval_cache_enabled"] is False
     assert summary["chunk_tokens_p95"] == 100
     assert documents[0]["embedding_model"] == "fake-model"
 
@@ -154,3 +164,35 @@ def test_runs_in_process_bm25_against_the_same_gold_passages() -> None:
     assert results[0]["hits"][0]["chunk_id"] == "chunk-1"
     assert results[0]["metrics"]["mrr"] == 1
     assert summary["bm25_document_count"] == 10
+
+
+def test_refuses_mislabeled_runtime_configuration() -> None:
+    runner = _load_script()
+    entries = [
+        {
+            "id": "q1",
+            "query": "question",
+            "expected_answer": "answer",
+            "tags": [],
+            "relevant_passages": [
+                {"source_id": "source.pdf", "char_start": 100, "char_end": 200}
+            ],
+        }
+    ]
+
+    import pytest
+
+    with pytest.raises(RuntimeError, match="runtime configuration mismatch"):
+        runner.run_benchmark(
+            client=FakeClient(),
+            entries=entries,
+            label="wrong-runtime",
+            mode="hybrid",
+            top_k=10,
+            vector_weight=0.7,
+            relevance_threshold=0.5,
+            repetitions=1,
+            delay_ms=0,
+            expected_chunking_strategy="recursive",
+            expected_lexical_backend="bm25",
+        )

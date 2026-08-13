@@ -125,6 +125,42 @@ def _verify_corpus(
     return [by_filename[filename] for filename in sorted(expected_filenames)]
 
 
+def _verify_runtime(
+    client: ApiClient,
+    *,
+    expected_chunking_strategy: str | None,
+    expected_lexical_backend: str | None,
+) -> dict[str, Any]:
+    health = client.request("GET", "/health")
+    if not isinstance(health, dict):
+        raise RuntimeError("health endpoint returned an unexpected response")
+    actual = {
+        "chunking_strategy": str(health.get("chunking_strategy", "unknown")),
+        "lexical_backend": str(health.get("lexical_backend", "unknown")),
+        "embedding_cache_enabled": bool(
+            health.get("embedding_cache_enabled", False)
+        ),
+        "retrieval_cache_enabled": bool(
+            health.get("retrieval_cache_enabled", False)
+        ),
+    }
+    expected = {
+        "chunking_strategy": expected_chunking_strategy,
+        "lexical_backend": expected_lexical_backend,
+    }
+    mismatches = [
+        f"{name}: expected {value!r}, got {actual[name]!r}"
+        for name, value in expected.items()
+        if value is not None and actual[name] != value
+    ]
+    if mismatches:
+        raise RuntimeError(
+            "benchmark runtime configuration mismatch:\n"
+            + "\n".join(f"- {mismatch}" for mismatch in mismatches)
+        )
+    return actual
+
+
 def _index_statistics(
     client: ApiClient,
     documents: list[dict[str, Any]],
@@ -220,8 +256,10 @@ def _retrieve(
     bm25_index: Bm25Index | None,
     rrf_k: int,
 ) -> list[dict[str, Any]]:
-    if system in {"vector", "keyword", "current_hybrid"}:
+    if system in {"vector", "keyword", "current_hybrid", "api_bm25_dense"}:
         mode = "hybrid" if system == "current_hybrid" else system
+        if system == "api_bm25_dense":
+            mode = "hybrid"
         return _api_search(
             client,
             query=query,
@@ -381,11 +419,18 @@ def run_benchmark(
     rrf_k: int = 60,
     bm25_k1: float = 1.5,
     bm25_b: float = 0.75,
+    expected_chunking_strategy: str | None = None,
+    expected_lexical_backend: str | None = None,
 ) -> tuple[
     list[dict[str, Any]],
-    dict[str, float | int],
+    dict[str, Any],
     list[dict[str, Any]],
 ]:
+    runtime = _verify_runtime(
+        client,
+        expected_chunking_strategy=expected_chunking_strategy,
+        expected_lexical_backend=expected_lexical_backend,
+    )
     filenames = {
         passage["source_id"]
         for entry in entries
@@ -485,9 +530,11 @@ def run_benchmark(
             f"{latencies_ms[0]:.1f} ms"
         )
 
-    summary = aggregate_query_metrics(
-        [result["metrics"] for result in query_results],
-        all_latencies_ms,
+    summary: dict[str, Any] = dict(
+        aggregate_query_metrics(
+            [result["metrics"] for result in query_results],
+            all_latencies_ms,
+        )
     )
     summary["unstable_ranking_count"] = sum(
         not result["ranking_stable"] for result in query_results
@@ -512,6 +559,14 @@ def run_benchmark(
     summary["bm25_document_count"] = (
         bm25_index.document_count if bm25_index is not None else 0
     )
+    summary["runtime_chunking_strategy"] = runtime["chunking_strategy"]
+    summary["runtime_lexical_backend"] = runtime["lexical_backend"]
+    summary["runtime_embedding_cache_enabled"] = runtime[
+        "embedding_cache_enabled"
+    ]
+    summary["runtime_retrieval_cache_enabled"] = runtime[
+        "retrieval_cache_enabled"
+    ]
     summary.update(index_statistics)
     return query_results, summary, corpus_documents
 
@@ -521,7 +576,7 @@ def _write_results(
     label: str,
     query_results: list[dict[str, Any]],
     metadata: dict[str, Any],
-    summary: dict[str, float | int],
+    summary: dict[str, Any],
 ) -> tuple[Path, Path, Path]:
     output_dir.mkdir(parents=True, exist_ok=True)
     results_path = output_dir / f"{label}.results.jsonl"
@@ -571,7 +626,14 @@ def main() -> None:
     )
     parser.add_argument(
         "--system",
-        choices=("vector", "keyword", "current_hybrid", "bm25", "bm25_dense"),
+        choices=(
+            "vector",
+            "keyword",
+            "current_hybrid",
+            "api_bm25_dense",
+            "bm25",
+            "bm25_dense",
+        ),
         help="retrieval system; defaults to the legacy --mode selection",
     )
     parser.add_argument("--top-k", type=int, default=20)
@@ -593,6 +655,14 @@ def main() -> None:
     parser.add_argument("--rrf-k", type=int, default=60)
     parser.add_argument("--bm25-k1", type=float, default=1.5)
     parser.add_argument("--bm25-b", type=float, default=0.75)
+    parser.add_argument(
+        "--expect-chunking-strategy",
+        choices=("fixed", "recursive"),
+    )
+    parser.add_argument(
+        "--expect-lexical-backend",
+        choices=("bm25", "postgres_fts"),
+    )
     parser.add_argument("--delay-ms", type=float, default=0)
     parser.add_argument("--timeout-seconds", type=float, default=120)
     parser.add_argument("--api-token-env", default="API_AUTH_TOKEN")
@@ -659,6 +729,8 @@ def main() -> None:
         rrf_k=args.rrf_k,
         bm25_k1=args.bm25_k1,
         bm25_b=args.bm25_b,
+        expected_chunking_strategy=args.expect_chunking_strategy,
+        expected_lexical_backend=args.expect_lexical_backend,
     )
     metadata = {
         "schema_version": "1.0",
@@ -681,6 +753,14 @@ def main() -> None:
         "rrf_k": args.rrf_k,
         "bm25_k1": args.bm25_k1,
         "bm25_b": args.bm25_b,
+        "chunking_strategy": summary["runtime_chunking_strategy"],
+        "lexical_backend": summary["runtime_lexical_backend"],
+        "embedding_cache_enabled": summary[
+            "runtime_embedding_cache_enabled"
+        ],
+        "retrieval_cache_enabled": summary[
+            "runtime_retrieval_cache_enabled"
+        ],
         "relevance_threshold": args.relevance_threshold,
         "repetitions": args.repetitions,
         "embedding_models": ",".join(

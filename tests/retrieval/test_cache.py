@@ -96,6 +96,46 @@ def test_filters_isolate_retrieval_but_reuse_embedding(database: Database) -> No
     assert provider.query_calls == 1
 
 
+def test_lexical_backend_and_bm25_parameters_isolate_retrieval_cache(
+    database: Database,
+) -> None:
+    add_chunk(
+        database,
+        filename="backends.txt",
+        media_type="text/plain",
+        text="shared apple",
+        embedding=[1.0, *([0.0] * 767)],
+        metadata={},
+    )
+    provider = CountingProvider()
+    cache = PersistentRetrievalCache(database)
+    bm25 = RetrievalService(
+        database,
+        provider,
+        lexical_backend="bm25",
+        cache=cache,
+    )
+    tuned_bm25 = RetrievalService(
+        database,
+        provider,
+        lexical_backend="bm25",
+        bm25_k1=2.0,
+        cache=cache,
+    )
+    fts = RetrievalService(
+        database,
+        provider,
+        lexical_backend="postgres_fts",
+        cache=cache,
+    )
+
+    assert bm25.search("apple").retrieval_cache_status == "miss"
+    assert bm25.search("apple").retrieval_cache_status == "hit"
+    assert tuned_bm25.search("apple").retrieval_cache_status == "miss"
+    assert fts.search("apple").retrieval_cache_status == "miss"
+    assert provider.query_calls == 1
+
+
 def test_corpus_invalidation_preserves_embedding_cache(database: Database) -> None:
     add_chunk(
         database,

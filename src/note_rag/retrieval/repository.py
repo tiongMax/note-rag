@@ -1,18 +1,26 @@
-"""Dialect-aware vector and keyword candidate retrieval."""
+"""Dialect-aware vector, PostgreSQL FTS, and persisted BM25 retrieval."""
 
 import math
-import re
+from collections import Counter
 from dataclasses import dataclass
 from typing import Any
 
-from sqlalchemy import Select, func, literal, literal_column, select
+from sqlalchemy import (
+    Float,
+    Select,
+    cast,
+    distinct,
+    func,
+    literal,
+    literal_column,
+    select,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Session
 
-from note_rag.persistence import ChunkRecord, Document
+from note_rag.chunking import lexical_terms
+from note_rag.persistence import ChunkLexicalTerm, ChunkRecord, Document
 from note_rag.retrieval.models import SearchFilters
-
-_TERM_PATTERN = re.compile(r"\w+", re.UNICODE)
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,6 +86,113 @@ class RetrievalRepository:
                 for chunk, filename, media_type, row_score in rows
             ]
         return self._python_keyword_search(query, limit=limit, filters=filters)
+
+    def bm25_search(
+        self,
+        query: str,
+        *,
+        limit: int,
+        filters: SearchFilters,
+        k1: float,
+        b: float,
+    ) -> list[RankedChunk]:
+        """Rank filtered chunks with exact Okapi BM25 corpus statistics."""
+
+        query_terms = sorted(set(lexical_terms(query)))
+        if not query_terms:
+            return []
+        if self._is_postgresql:
+            return self._postgres_bm25_search(
+                query_terms,
+                limit=limit,
+                filters=filters,
+                k1=k1,
+                b=b,
+            )
+        return self._python_bm25_search(
+            query_terms,
+            limit=limit,
+            filters=filters,
+            k1=k1,
+            b=b,
+        )
+
+    def _postgres_bm25_search(
+        self,
+        query_terms: list[str],
+        *,
+        limit: int,
+        filters: SearchFilters,
+        k1: float,
+        b: float,
+    ) -> list[RankedChunk]:
+        filtered = (
+            select(
+                ChunkRecord.id.label("chunk_id"),
+                ChunkRecord.lexical_token_count.label("document_length"),
+            )
+            .join(Document, ChunkRecord.document_id == Document.id)
+            .where(ChunkRecord.lexical_token_count > 0)
+        )
+        filtered = self._apply_filters(filtered, filters).cte("filtered_chunks")
+        corpus = select(
+            func.count(filtered.c.chunk_id).label("document_count"),
+            func.avg(filtered.c.document_length).label("average_length"),
+        ).cte("bm25_corpus")
+        document_frequency = (
+            select(
+                ChunkLexicalTerm.term.label("term"),
+                func.count(distinct(ChunkLexicalTerm.chunk_id)).label(
+                    "document_frequency"
+                ),
+            )
+            .join(
+                filtered,
+                filtered.c.chunk_id == ChunkLexicalTerm.chunk_id,
+            )
+            .where(ChunkLexicalTerm.term.in_(query_terms))
+            .group_by(ChunkLexicalTerm.term)
+            .cte("bm25_document_frequency")
+        )
+        length_ratio = cast(filtered.c.document_length, Float) / func.nullif(
+            corpus.c.average_length,
+            0,
+        )
+        inverse_document_frequency = func.ln(
+            1
+            + (
+                corpus.c.document_count
+                - document_frequency.c.document_frequency
+                + 0.5
+            )
+            / (document_frequency.c.document_frequency + 0.5)
+        )
+        frequency = cast(ChunkLexicalTerm.term_frequency, Float)
+        denominator = frequency + k1 * (1 - b + b * length_ratio)
+        term_score = inverse_document_frequency * (
+            frequency * (k1 + 1) / denominator
+        )
+        score = func.sum(term_score).label("score")
+        statement = (
+            select(ChunkRecord, Document.filename, Document.media_type, score)
+            .join(Document, ChunkRecord.document_id == Document.id)
+            .join(filtered, filtered.c.chunk_id == ChunkRecord.id)
+            .join(ChunkLexicalTerm, ChunkLexicalTerm.chunk_id == ChunkRecord.id)
+            .join(
+                document_frequency,
+                document_frequency.c.term == ChunkLexicalTerm.term,
+            )
+            .join(corpus, literal(True))
+            .group_by(ChunkRecord.id, Document.filename, Document.media_type)
+            .order_by(score.desc(), ChunkRecord.id)
+            .limit(limit)
+        )
+        return [
+            RankedChunk(chunk, filename, media_type, float(row_score))
+            for chunk, filename, media_type, row_score in self.session.execute(
+                statement
+            )
+        ]
 
     def _base_rows(self, filters: SearchFilters) -> list[tuple[ChunkRecord, str, str]]:
         statement = (
@@ -162,10 +277,10 @@ class RetrievalRepository:
         limit: int,
         filters: SearchFilters,
     ) -> list[RankedChunk]:
-        query_terms = set(_terms(query))
+        query_terms = set(lexical_terms(query))
         ranked = []
         for chunk, filename, media_type in self._base_rows(filters):
-            terms = _terms(chunk.text)
+            terms = lexical_terms(chunk.text)
             if not terms:
                 continue
             matches = sum(term in query_terms for term in terms)
@@ -181,6 +296,42 @@ class RetrievalRepository:
         ranked.sort(key=lambda item: (-item.score, str(item.chunk.id)))
         return ranked[:limit]
 
-
-def _terms(text: str) -> list[str]:
-    return [match.group(0).casefold() for match in _TERM_PATTERN.finditer(text)]
+    def _python_bm25_search(
+        self,
+        query_terms: list[str],
+        *,
+        limit: int,
+        filters: SearchFilters,
+        k1: float,
+        b: float,
+    ) -> list[RankedChunk]:
+        rows = self._base_rows(filters)
+        documents = []
+        document_frequency: Counter[str] = Counter()
+        for chunk, filename, media_type in rows:
+            frequencies = Counter(lexical_terms(chunk.text))
+            document_frequency.update(frequencies.keys())
+            documents.append((chunk, filename, media_type, frequencies))
+        if not documents:
+            return []
+        average_length = sum(
+            sum(frequencies.values()) for *_, frequencies in documents
+        ) / len(documents)
+        ranked = []
+        for chunk, filename, media_type, frequencies in documents:
+            length = sum(frequencies.values())
+            score = 0.0
+            for term in query_terms:
+                frequency = frequencies.get(term, 0)
+                if not frequency:
+                    continue
+                df = document_frequency[term]
+                idf = math.log(1 + (len(documents) - df + 0.5) / (df + 0.5))
+                denominator = frequency + k1 * (
+                    1 - b + b * (length / average_length if average_length else 0)
+                )
+                score += idf * (frequency * (k1 + 1) / denominator)
+            if score:
+                ranked.append(RankedChunk(chunk, filename, media_type, score))
+        ranked.sort(key=lambda item: (-item.score, str(item.chunk.id)))
+        return ranked[:limit]

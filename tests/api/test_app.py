@@ -10,6 +10,8 @@ def test_health() -> None:
 
     assert response.status_code == 200
     assert response.json()["status"] == "ok"
+    assert response.json()["embedding_cache_enabled"] is True
+    assert response.json()["retrieval_cache_enabled"] is True
 
 
 def test_chunk_text() -> None:

@@ -92,6 +92,10 @@ Run every system against the same API, corpus, embeddings, dataset hash, and
 BM25 index from the API's stored chunks. A gain here justifies evaluating a
 production BM25 backend; it does not make the in-process index production-ready.
 
+The request path now also supports persisted PostgreSQL BM25. Use
+`--system api_bm25_dense` to benchmark the configured API backend; reserve
+`bm25` and `bm25_dense` for the legacy in-process experimental control.
+
 ```powershell
 $python = ".venv\Scripts\python.exe"
 $runner = "scripts\run_retrieval_benchmark.py"
@@ -101,6 +105,8 @@ $runner = "scripts\run_retrieval_benchmark.py"
 & $python $runner --label current-hybrid --system current_hybrid
 & $python $runner --label bm25 --system bm25
 & $python $runner --label bm25-dense --system bm25_dense
+& $python $runner --label api-bm25-dense --system api_bm25_dense `
+  --expect-lexical-backend bm25
 
 & $python $runner --label current-hybrid-lexical `
   --system current_hybrid --reranker lexical --candidate-k 50
@@ -149,6 +155,36 @@ Compare the controlled summaries:
 
 The comparison refuses to run when dataset hash, embedding model, retrieval
 mode, `top_k`, vector weight, relevance threshold, or repetition count differ.
+
+## Controlled 2x2 production retrieval experiment
+
+Do not combine metrics from separate comparisons. Run the four cells below
+with the same corpus, embedding model, `top_k`, relevance threshold, RRF
+parameters, and three repetitions. Use isolated fixed and recursive indexes.
+
+| Cell | Chunking | Request-path retrieval |
+| --- | --- | --- |
+| A | fixed | dense vector |
+| B | recursive | dense vector |
+| C | fixed | PostgreSQL BM25 + dense RRF |
+| D | recursive | PostgreSQL BM25 + dense RRF |
+
+Pass `--expect-chunking-strategy` and `--expect-lexical-backend` on every run.
+The runner reads `/health` and fails before evaluation if the server does not
+match. Summarize the four controlled outputs with:
+
+```powershell
+.venv\Scripts\python.exe scripts\compare_retrieval_factorial.py `
+  --fixed-dense tmp\benchmarks\fixed-dense.summary.json `
+  --recursive-dense tmp\benchmarks\recursive-dense.summary.json `
+  --fixed-bm25-dense tmp\benchmarks\fixed-bm25-dense.summary.json `
+  --recursive-bm25-dense tmp\benchmarks\recursive-bm25-dense.summary.json `
+  --output tmp\benchmarks\retrieval-factorial.json
+```
+
+The report separates the chunking effect, retrieval effect, interaction check,
+and final A-to-D combined effect. Only that combined row supports a résumé
+sentence that attributes one MRR and Recall@5 improvement to both changes.
 
 ## Metric interpretation
 

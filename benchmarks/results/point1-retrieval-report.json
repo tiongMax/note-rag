@@ -1,0 +1,76 @@
+{
+  "schema_version": "1.0",
+  "created_at": "2026-08-13T11:59:00.8428543Z",
+  "dataset": {
+    "query_count": 48,
+    "source_count": 6,
+    "sha256": "869335a0ed4cb222743f5c7666c61772be8b3f651815c6b04a75bb605cf697f0"
+  },
+  "controls": {
+    "repetitions": 3,
+    "top_k": 20,
+    "vector_weight": 0.7,
+    "relevance_threshold": 0.5,
+    "embedding_model": "gemini-embedding-2",
+    "embedding_cache": "warm",
+    "retrieval_cache_enabled": false,
+    "bm25_k1": 1.5,
+    "bm25_b": 0.75,
+    "rrf_k": 60,
+    "request_path": "FastAPI /api/v1/retrieval/search"
+  },
+  "cells": {
+    "fixed_dense": {
+      "mrr": 0.6538544584500466,
+      "recall_at_5": 0.875,
+      "ndcg_at_10": 0.7605045293349607,
+      "unstable_ranking_count": 0
+    },
+    "recursive_dense": {
+      "mrr": 0.8142361111111112,
+      "recall_at_5": 0.9583333333333334,
+      "ndcg_at_10": 0.8777858060850231,
+      "unstable_ranking_count": 0
+    },
+    "fixed_bm25_dense": {
+      "mrr": 0.7786706349206348,
+      "recall_at_5": 0.96875,
+      "ndcg_at_10": 0.8569209762971243,
+      "unstable_ranking_count": 0
+    },
+    "recursive_bm25_dense": {
+      "mrr": 0.8406250000000001,
+      "recall_at_5": 0.9791666666666666,
+      "ndcg_at_10": 0.8967143145720785,
+      "unstable_ranking_count": 0
+    }
+  },
+  "combined_effect": {
+    "mrr_relative_change_percent": 28.564543551892346,
+    "recall_at_5_relative_change_percent": 11.9047619047619,
+    "ndcg_at_10_relative_change_percent": 17.91045023179932,
+    "paired_bootstrap_95": {
+      "samples": 10000,
+      "seed": 42,
+      "mrr": [11.511098463289695, 50.432228664860034],
+      "recall_at_5": [0.0, 27.027027027027017],
+      "ndcg_at_10": [7.189593538653651, 29.46510190314064]
+    }
+  },
+  "migration_backfill": {
+    "fixed_chunks": 144,
+    "fixed_chunks_with_lexical_statistics": 144,
+    "recursive_chunks": 148,
+    "recursive_chunks_with_lexical_statistics": 148
+  },
+  "raw_artifact_sha256": {
+    "fixed_dense_summary": "4b8e0b341a810f7bf750b8eb0e372e53c12c3d667bf828469ce4c4076d9b423c",
+    "fixed_dense_results": "0d7dfa5493b73be1da3883f9b1e517d0293c977a062f8de175c7d819f060889c",
+    "recursive_dense_summary": "588fded44b9d4610d117046906bdb7ff365ac534f66ce44a7be6c543a57b3588",
+    "recursive_dense_results": "04c2ff934da0c8a00a7d4621eae270af1a8ed1d9999edefae7a37805be5a6c6d",
+    "fixed_bm25_dense_summary": "95e020c7ae7b789021fbac1ff38637b46862bedac22011e8179c58f507ac80d8",
+    "fixed_bm25_dense_results": "349f625b6b02ff7d64ad33b67396e60eb773f5298df732187f14f1820a042344",
+    "recursive_bm25_dense_summary": "567b5e72a3d12a726f06db2f82d2aea7eda3305580c792dfc48a4a4b12b7a693",
+    "recursive_bm25_dense_results": "9a3824b2da4742c87451df60d2e130b52a47e8845950e84c0b9e282ab32c2eab"
+  }
+}

@@ -139,6 +139,7 @@ class SearchHitResponse(BaseModel):
 class SearchResponse(BaseModel):
     query: str
     mode: SearchMode
+    lexical_backend: str
     hits: list[SearchHitResponse]
 
 

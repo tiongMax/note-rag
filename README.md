@@ -191,9 +191,12 @@ are listed below; see [`.env.example`](.env.example) for the complete reference.
 | `RETRIEVAL_CACHE_TTL_SECONDS` | `3600` | Retrieval-result cache lifetime. |
 | `CHAT_MODEL` | `gemini-3.5-flash` | Chat model identifier. |
 | `API_AUTH_TOKEN` | empty | Bearer token; required in production and must contain at least 24 characters. |
-| `CHUNKING_STRATEGY` | `fixed` | Chunking mode: `fixed` or `recursive`. |
+| `CHUNKING_STRATEGY` | `fixed` locally, `recursive` in Compose | Chunking mode: `fixed` or structure-aware `recursive`. |
 | `CHUNK_SIZE` | `200` | Maximum tokens per chunk. |
 | `CHUNK_OVERLAP` | `20` | Token overlap between adjacent chunks. |
+| `RETRIEVAL_LEXICAL_BACKEND` | `bm25` | Lexical backend: persisted PostgreSQL `bm25` or compatibility `postgres_fts`. |
+| `RETRIEVAL_BM25_K1` | `1.5` | BM25 term-frequency saturation parameter. |
+| `RETRIEVAL_BM25_B` | `0.75` | BM25 document-length normalization parameter. |
 | `MAX_UPLOAD_BYTES` | `10485760` | Maximum document size in bytes. |
 | `BACKGROUND_WORKER_ENABLED` | `true` | Process ingestion asynchronously when enabled. |
 | `CONTEXT_MAX_TOKENS` | `1200` | Default context budget for generation. |

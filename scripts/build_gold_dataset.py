@@ -95,7 +95,9 @@ def build(
     annotations = _load_jsonl(annotations_path)
     ids = [item.get("id") for item in annotations]
     duplicate_ids = sorted(
-        item_id for item_id, count in Counter(ids).items() if count > 1
+        str(item_id)
+        for item_id, count in Counter(ids).items()
+        if item_id is not None and count > 1
     )
     if duplicate_ids:
         raise ValueError(f"duplicate annotation IDs: {duplicate_ids}")

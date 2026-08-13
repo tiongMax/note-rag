@@ -67,6 +67,20 @@ def test_rejects_unknown_reranker_backend() -> None:
         ApiSettings(reranker_backend="hosted")
 
 
+def test_reads_and_validates_bm25_configuration(monkeypatch) -> None:
+    monkeypatch.setenv("RETRIEVAL_LEXICAL_BACKEND", "postgres_fts")
+    monkeypatch.setenv("RETRIEVAL_BM25_K1", "1.8")
+    monkeypatch.setenv("RETRIEVAL_BM25_B", "0.6")
+
+    settings = ApiSettings.from_env()
+
+    assert settings.retrieval_lexical_backend == "postgres_fts"
+    assert settings.retrieval_bm25_k1 == 1.8
+    assert settings.retrieval_bm25_b == 0.6
+    with pytest.raises(ValueError, match="RETRIEVAL_LEXICAL_BACKEND"):
+        ApiSettings(retrieval_lexical_backend="elasticsearch")
+
+
 def test_accepts_secure_production_configuration() -> None:
     settings = ApiSettings(
         app_environment="production",

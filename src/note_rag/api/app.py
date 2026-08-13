@@ -139,6 +139,9 @@ def create_app(
         resolved_embedding_provider,
         candidate_multiplier=app_settings.retrieval_candidate_multiplier,
         rrf_k=app_settings.retrieval_rrf_k,
+        lexical_backend=app_settings.retrieval_lexical_backend,
+        bm25_k1=app_settings.retrieval_bm25_k1,
+        bm25_b=app_settings.retrieval_bm25_b,
         cache=retrieval_cache,
     )
     resolved_reranker = reranker
@@ -257,15 +260,26 @@ def create_app(
                 "X-Embedding-Cache",
                 "X-Retrieval-Cache",
                 "X-Corpus-Version",
+                "X-Lexical-Backend",
             ],
         )
 
     @app.get("/health", tags=["system"])
-    async def health() -> dict[str, str]:
+    async def health() -> dict[str, str | bool]:
         return {
             "status": "ok",
             "service": app_settings.app_name,
             "environment": app_settings.app_environment,
+            "chunking_strategy": app_settings.chunking_strategy,
+            "lexical_backend": app_settings.retrieval_lexical_backend,
+            "embedding_cache_enabled": (
+                app_settings.cache_enabled
+                and app_settings.embedding_cache_enabled
+            ),
+            "retrieval_cache_enabled": (
+                app_settings.cache_enabled
+                and app_settings.retrieval_cache_enabled
+            ),
         }
 
     @app.get("/health/ready", tags=["system"])
@@ -500,6 +514,7 @@ def create_app(
         response.headers["X-Embedding-Cache"] = result.embedding_cache_status
         response.headers["X-Retrieval-Cache"] = result.retrieval_cache_status
         response.headers["X-Corpus-Version"] = str(result.corpus_version)
+        response.headers["X-Lexical-Backend"] = result.lexical_backend
         return SearchResponse.model_validate(result, from_attributes=True)
 
     @app.post(

@@ -146,6 +146,9 @@ class PersistentRetrievalCache:
         model_name: str,
         candidate_multiplier: int,
         rrf_k: int,
+        lexical_backend: str,
+        bm25_k1: float,
+        bm25_b: float,
     ) -> tuple[RetrievalResult | None, str, int, str]:
         corpus_version = self.corpus_version()
         key_hash = self.retrieval_key(
@@ -157,6 +160,9 @@ class PersistentRetrievalCache:
             model_name=model_name,
             candidate_multiplier=candidate_multiplier,
             rrf_k=rrf_k,
+            lexical_backend=lexical_backend,
+            bm25_k1=bm25_k1,
+            bm25_b=bm25_b,
             corpus_version=corpus_version,
         )
         if not self.retrieval_enabled:
@@ -177,6 +183,7 @@ class PersistentRetrievalCache:
                 query=query.strip(),
                 mode=result.mode,
                 hits=result.hits,
+                lexical_backend=result.lexical_backend,
                 embedding_cache_status="skipped",
                 retrieval_cache_status="hit",
                 corpus_version=corpus_version,
@@ -265,11 +272,14 @@ class PersistentRetrievalCache:
         model_name: str,
         candidate_multiplier: int,
         rrf_k: int,
+        lexical_backend: str,
+        bm25_k1: float,
+        bm25_b: float,
         corpus_version: int,
     ) -> str:
         return _hash(
             {
-                "version": 1,
+                "version": 2,
                 "query": self.normalize_query(query),
                 "mode": mode.value,
                 "top_k": top_k,
@@ -283,6 +293,9 @@ class PersistentRetrievalCache:
                 "model": model_name,
                 "candidate_multiplier": candidate_multiplier,
                 "rrf_k": rrf_k,
+                "lexical_backend": lexical_backend,
+                "bm25_k1": bm25_k1,
+                "bm25_b": bm25_b,
                 "corpus_version": corpus_version,
             }
         )
@@ -347,6 +360,7 @@ def _serialize_result(result: RetrievalResult) -> dict[str, Any]:
     return {
         "query": result.query,
         "mode": result.mode.value,
+        "lexical_backend": result.lexical_backend,
         "hits": [
             {
                 "chunk_id": str(hit.chunk_id),
@@ -378,6 +392,7 @@ def _deserialize_result(payload: dict[str, Any]) -> RetrievalResult:
     return RetrievalResult(
         query=str(payload["query"]),
         mode=SearchMode(str(payload["mode"])),
+        lexical_backend=str(payload.get("lexical_backend", "postgres_fts")),
         hits=[
             RetrievalHit(
                 chunk_id=uuid.UUID(str(item["chunk_id"])),

@@ -9,10 +9,11 @@ from sqlalchemy import func, or_, select, update
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import Session
 
-from note_rag.chunking import Chunk
+from note_rag.chunking import Chunk, lexical_term_frequencies
 from note_rag.persistence.models import (
     ChatMessageRecord,
     ChatRole,
+    ChunkLexicalTerm,
     ChunkRecord,
     Conversation,
     Document,
@@ -64,6 +65,7 @@ class ChunkRepository:
     ) -> list[ChunkRecord]:
         records = []
         for chunk in chunks:
+            term_frequencies = lexical_term_frequencies(chunk.text)
             source_metadata: dict[str, Any] = {}
             if chunk.metadata.source_id is not None:
                 source_metadata["source_id"] = chunk.metadata.source_id
@@ -80,6 +82,11 @@ class ChunkRepository:
                     char_start=chunk.metadata.char_start,
                     char_end=chunk.metadata.char_end,
                     source_metadata=source_metadata,
+                    lexical_token_count=sum(term_frequencies.values()),
+                    lexical_terms=[
+                        ChunkLexicalTerm(term=term, term_frequency=frequency)
+                        for term, frequency in term_frequencies.items()
+                    ],
                 )
             )
         self.session.add_all(records)
