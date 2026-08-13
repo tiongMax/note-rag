@@ -1,0 +1,51 @@
+{
+  "schema_version": "1.0",
+  "created_at": "2026-08-13T12:53:00Z",
+  "implementation_commit": "ed10d0f82475da50689ef839a6e18a14f2c261e5",
+  "implementation_dirty": false,
+  "dataset": {
+    "question_count": 48,
+    "passage_count": 49,
+    "source_count": 6,
+    "normalized_text_sha256": "c4d2adc7bf7a80313e651c24f1b24aa2b9bb4218903ad7363b726b1cee03190d",
+    "file_sha256": "869335a0ed4cb222743f5c7666c61772be8b3f651815c6b04a75bb605cf697f0",
+    "manifest_sha256": "7e8e54681b5f4b1315579a486cd6a5384c83e983c00ec2041ca2a9153b6d9ec4"
+  },
+  "retrieval_metrics": {
+    "source": "point1 recursive_bm25_dense production cell",
+    "recall_at_5": 0.9791666666666666,
+    "mrr": 0.8406250000000001,
+    "ndcg_at_10": 0.8967143145720785
+  },
+  "answer_collection": {
+    "sample_count": 48,
+    "answer_model": "gemini-3.5-flash-lite",
+    "prompt_sha256_count": 48,
+    "corpus_version": 2,
+    "chat_latency_mean_ms": 1452.778154159508,
+    "chat_latency_p50_ms": 1347.3398999776691,
+    "chat_latency_p95_ms": 2151.589369866997,
+    "context_tokens_mean": 1185.4583333333333,
+    "context_truncated_count": 48
+  },
+  "deterministic_quality_proxies": {
+    "sample_count": 48,
+    "reference_token_precision": 0.33716509581955645,
+    "reference_token_recall": 0.69370239524548,
+    "reference_token_f1": 0.4394549035014768,
+    "answer_support_by_context": 0.8379387680978514,
+    "reference_coverage_by_context": 0.7852817943683498,
+    "citation_presence": 0.9791666666666666,
+    "valid_citation_rate": 0.96875
+  },
+  "ragas": {
+    "executed": false,
+    "reason": "external judge data transfer requires explicit user authorization"
+  },
+  "raw_artifact_sha256": {
+    "answer_samples_results": "d7a5dc722ed2073641577498d1dbaa6eedc137b4d69329cccd367fb5e9ef6c06",
+    "answer_samples_summary": "7a5e4d4a985becf862c35c38077979216902fbe16b7e5400386fea47866ca59f",
+    "deterministic_results": "6ab80716a702d070570e4c92c55de304862e769375a164e3c1863fdee0466468",
+    "deterministic_summary": "42f000d0be258dcb0d1a9b8cf76fdce5a397938c349f8e26f004038d2558103e"
+  }
+}
