@@ -16,6 +16,7 @@ from note_rag.persistence.models import (
     ChunkLexicalTerm,
     ChunkRecord,
     Conversation,
+    ConversationMemoryRecord,
     Document,
     IngestionJob,
     IngestionJobStatus,
@@ -345,6 +346,57 @@ class ChatMessageRepository:
         self.session.flush()
         return message
 
+    def add_pair(
+        self,
+        conversation: Conversation,
+        *,
+        user_content: str,
+        user_token_count: int,
+        assistant_content: str,
+        assistant_token_count: int,
+        citations: list[dict[str, Any]] | None = None,
+        context_token_count: int = 0,
+        model_name: str | None = None,
+    ) -> tuple[ChatMessageRecord, ChatMessageRecord]:
+        """Lock one conversation and append a complete turn atomically."""
+
+        locked_conversation_id = self.session.scalar(
+            select(Conversation.id)
+            .where(Conversation.id == conversation.id)
+            .with_for_update()
+        )
+        if locked_conversation_id is None:
+            raise LookupError("conversation not found")
+        position = self.session.scalar(
+            select(func.max(ChatMessageRecord.position)).where(
+                ChatMessageRecord.conversation_id == conversation.id
+            )
+        )
+        user_position = position + 1 if position is not None else 0
+        user = ChatMessageRecord(
+            conversation=conversation,
+            position=user_position,
+            role=ChatRole.USER,
+            content=user_content,
+            token_count=user_token_count,
+            context_token_count=context_token_count,
+            citations=[],
+        )
+        assistant = ChatMessageRecord(
+            conversation=conversation,
+            position=user_position + 1,
+            role=ChatRole.ASSISTANT,
+            content=assistant_content,
+            token_count=assistant_token_count,
+            citations=citations or [],
+            context_token_count=context_token_count,
+            model_name=model_name,
+        )
+        conversation.updated_at = datetime.now(UTC)
+        self.session.add_all([user, assistant])
+        self.session.flush()
+        return user, assistant
+
     def list_for_conversation(
         self,
         conversation_id: uuid.UUID,
@@ -353,5 +405,47 @@ class ChatMessageRepository:
             select(ChatMessageRecord)
             .where(ChatMessageRecord.conversation_id == conversation_id)
             .order_by(ChatMessageRecord.position)
+        )
+        return list(self.session.scalars(statement))
+
+
+class ConversationMemoryRepository:
+    def __init__(self, session: Session) -> None:
+        self.session = session
+
+    def add(
+        self,
+        conversation: Conversation,
+        *,
+        start_position: int,
+        end_position: int,
+        summary: str,
+        token_count: int,
+        embedding_model: str | None,
+        embedding_dimension: int | None,
+        embedding: list[float] | None,
+    ) -> ConversationMemoryRecord:
+        memory = ConversationMemoryRecord(
+            conversation=conversation,
+            start_position=start_position,
+            end_position=end_position,
+            summary=summary,
+            token_count=token_count,
+            embedding_model=embedding_model,
+            embedding_dimension=embedding_dimension,
+            embedding=embedding,
+        )
+        self.session.add(memory)
+        self.session.flush()
+        return memory
+
+    def list_for_conversation(
+        self,
+        conversation_id: uuid.UUID,
+    ) -> list[ConversationMemoryRecord]:
+        statement = (
+            select(ConversationMemoryRecord)
+            .where(ConversationMemoryRecord.conversation_id == conversation_id)
+            .order_by(ConversationMemoryRecord.start_position)
         )
         return list(self.session.scalars(statement))

@@ -47,6 +47,19 @@ class ChatGuardrailTrace:
 
 
 @dataclass(frozen=True, slots=True)
+class ChatMemoryTrace:
+    """Auditable history selection for one generation prompt."""
+
+    recent_message_count: int
+    semantic_memory_count: int
+    available_older_memory_count: int
+    recent_tokens: int
+    semantic_memory_tokens: int
+    embedding_model: str | None
+    retrieval_query_tokens: int = 0
+
+
+@dataclass(frozen=True, slots=True)
 class ChatResult:
     conversation_id: uuid.UUID
     message_id: uuid.UUID
@@ -58,6 +71,7 @@ class ChatResult:
     prompt_token_count: int
     prompt_token_budget: int
     guardrails: ChatGuardrailTrace | None = None
+    memory: ChatMemoryTrace | None = None
 
 
 @dataclass(frozen=True, slots=True)

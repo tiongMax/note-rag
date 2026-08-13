@@ -210,6 +210,13 @@ def create_app(
         token_counter=token_counter,
         history_max_messages=app_settings.chat_history_max_messages,
         history_max_tokens=app_settings.chat_history_max_tokens,
+        memory_recent_turns=app_settings.chat_memory_recent_turns,
+        memory_semantic_k=app_settings.chat_memory_semantic_k,
+        memory_semantic_min_similarity=(
+            app_settings.chat_memory_semantic_min_similarity
+        ),
+        memory_summary_max_tokens=app_settings.chat_memory_summary_max_tokens,
+        memory_embedding_provider=resolved_embedding_provider,
         prompt_max_tokens=app_settings.chat_prompt_max_tokens,
         prompt_reserve_tokens=app_settings.chat_prompt_reserve_tokens,
         guardrails=(

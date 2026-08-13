@@ -228,6 +228,16 @@ class ChatGuardrailResponse(BaseModel):
     lexical_relevance_proxy: float | None
 
 
+class ChatMemoryResponse(BaseModel):
+    recent_message_count: int
+    semantic_memory_count: int
+    available_older_memory_count: int
+    recent_tokens: int
+    semantic_memory_tokens: int
+    embedding_model: str | None
+    retrieval_query_tokens: int
+
+
 class ChatResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -241,6 +251,7 @@ class ChatResponse(BaseModel):
     prompt_token_count: int
     prompt_token_budget: int
     guardrails: ChatGuardrailResponse | None = None
+    memory: ChatMemoryResponse | None = None
 
 
 class ChatMessageResponse(BaseModel):

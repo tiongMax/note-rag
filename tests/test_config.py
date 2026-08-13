@@ -154,3 +154,23 @@ def test_effective_chat_output_limit_uses_stricter_cap(
     )
 
     assert settings.effective_chat_max_output_tokens == expected
+
+
+def test_reads_and_validates_conversation_memory_configuration(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("CHAT_MEMORY_RECENT_TURNS", "5")
+    monkeypatch.setenv("CHAT_MEMORY_SEMANTIC_K", "2")
+    monkeypatch.setenv("CHAT_MEMORY_SEMANTIC_MIN_SIMILARITY", "0.35")
+    monkeypatch.setenv("CHAT_MEMORY_SUMMARY_MAX_TOKENS", "72")
+
+    settings = ApiSettings.from_env()
+
+    assert settings.chat_memory_recent_turns == 5
+    assert settings.chat_memory_semantic_k == 2
+    assert settings.chat_memory_semantic_min_similarity == 0.35
+    assert settings.chat_memory_summary_max_tokens == 72
+    with pytest.raises(ValueError, match="CHAT_MEMORY_SEMANTIC_K"):
+        ApiSettings(chat_memory_semantic_k=-1)
+    with pytest.raises(ValueError, match="CHAT_MEMORY_SEMANTIC_MIN_SIMILARITY"):
+        ApiSettings(chat_memory_semantic_min_similarity=2.0)

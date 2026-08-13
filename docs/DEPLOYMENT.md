@@ -57,6 +57,16 @@ explicit emergency break-glass setting
 a security incident, time-bound it, and restore guardrails immediately.
 
 The bundled generic and chat limiters are per process and keyed by client IP.
+
+Conversation memory persists one bounded extractive summary and embedding per
+successfully validated turn. `CHAT_MEMORY_RECENT_TURNS` controls verbatim recent
+history, while `CHAT_MEMORY_SEMANTIC_K`,
+`CHAT_MEMORY_SEMANTIC_MIN_SIMILARITY`, and
+`CHAT_MEMORY_SUMMARY_MAX_TOKENS` bound older-memory recall. Memory embeddings
+use the configured embedding provider and may add one embedding request per
+completed chat plus one query-embedding request when eligible older memories
+exist. Provider failure degrades to recent history; it does not discard the
+completed chat pair.
 Multi-replica deployments need an external shared limiter at the gateway to
 enforce one global quota.
 

@@ -1,18 +1,17 @@
 from collections.abc import Iterator
+from pathlib import Path
 
 import pytest
 from sqlalchemy import create_engine, event
-from sqlalchemy.pool import StaticPool
 
 from note_rag.persistence import Base, Database
 
 
 @pytest.fixture
-def database() -> Iterator[Database]:
+def database(tmp_path: Path) -> Iterator[Database]:
     engine = create_engine(
-        "sqlite+pysqlite://",
+        f"sqlite+pysqlite:///{tmp_path / 'api-tests.sqlite3'}",
         connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
     )
 
     @event.listens_for(engine, "connect")

@@ -66,6 +66,10 @@ class ApiSettings:
     chat_max_output_tokens: int = 1024
     chat_history_max_messages: int = 20
     chat_history_max_tokens: int = 2000
+    chat_memory_recent_turns: int = 4
+    chat_memory_semantic_k: int = 2
+    chat_memory_semantic_min_similarity: float = 0.25
+    chat_memory_summary_max_tokens: int = 64
     guardrails_enabled: bool = True
     allow_unguarded_chat_in_production: bool = False
     chat_input_max_tokens: int = 512
@@ -147,6 +151,12 @@ class ApiSettings:
             "RETRIEVAL_CACHE_TTL_SECONDS": self.retrieval_cache_ttl_seconds,
             "CROSS_ENCODER_BATCH_SIZE": self.cross_encoder_batch_size,
             "CHAT_MAX_OUTPUT_TOKENS": self.chat_max_output_tokens,
+            "CHAT_HISTORY_MAX_MESSAGES": self.chat_history_max_messages,
+            "CHAT_HISTORY_MAX_TOKENS": self.chat_history_max_tokens,
+            "CHAT_MEMORY_RECENT_TURNS": self.chat_memory_recent_turns,
+            "CHAT_MEMORY_SUMMARY_MAX_TOKENS": (
+                self.chat_memory_summary_max_tokens
+            ),
             "CHAT_INPUT_MAX_TOKENS": self.chat_input_max_tokens,
             "CHAT_PROMPT_MAX_TOKENS": self.chat_prompt_max_tokens,
             "CHAT_PROMPT_RESERVE_TOKENS": self.chat_prompt_reserve_tokens,
@@ -161,6 +171,12 @@ class ApiSettings:
         for name, value in positive_values.items():
             if value <= 0:
                 raise ValueError(f"{name} must be greater than zero")
+        if self.chat_memory_semantic_k < 0:
+            raise ValueError("CHAT_MEMORY_SEMANTIC_K cannot be negative")
+        if not -1.0 <= self.chat_memory_semantic_min_similarity <= 1.0:
+            raise ValueError(
+                "CHAT_MEMORY_SEMANTIC_MIN_SIMILARITY must be between -1 and 1"
+            )
         if self.chat_prompt_reserve_tokens >= self.chat_prompt_max_tokens:
             raise ValueError(
                 "CHAT_PROMPT_RESERVE_TOKENS must be smaller than "
@@ -304,6 +320,18 @@ class ApiSettings:
             ),
             chat_history_max_tokens=int(
                 os.getenv("CHAT_HISTORY_MAX_TOKENS", "2000")
+            ),
+            chat_memory_recent_turns=int(
+                os.getenv("CHAT_MEMORY_RECENT_TURNS", "4")
+            ),
+            chat_memory_semantic_k=int(
+                os.getenv("CHAT_MEMORY_SEMANTIC_K", "2")
+            ),
+            chat_memory_semantic_min_similarity=float(
+                os.getenv("CHAT_MEMORY_SEMANTIC_MIN_SIMILARITY", "0.25")
+            ),
+            chat_memory_summary_max_tokens=int(
+                os.getenv("CHAT_MEMORY_SUMMARY_MAX_TOKENS", "64")
             ),
             guardrails_enabled=_env_bool("GUARDRAILS_ENABLED", True),
             allow_unguarded_chat_in_production=_env_bool(

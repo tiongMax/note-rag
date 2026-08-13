@@ -277,6 +277,11 @@ class Conversation(TimestampMixin, Base):
         cascade="all, delete-orphan",
         order_by="ChatMessageRecord.position",
     )
+    memories: Mapped[list["ConversationMemoryRecord"]] = relationship(
+        back_populates="conversation",
+        cascade="all, delete-orphan",
+        order_by="ConversationMemoryRecord.start_position",
+    )
 
 
 class ChatMessageRecord(TimestampMixin, Base):
@@ -331,6 +336,65 @@ class ChatMessageRecord(TimestampMixin, Base):
     model_name: Mapped[str | None] = mapped_column(String(255))
 
     conversation: Mapped[Conversation] = relationship(back_populates="messages")
+
+
+class ConversationMemoryRecord(TimestampMixin, Base):
+    """One compact, embedded memory derived from a completed chat turn."""
+
+    __tablename__ = "conversation_memories"
+    __table_args__ = (
+        CheckConstraint(
+            "start_position >= 0",
+            name="ck_conversation_memories_start_position",
+        ),
+        CheckConstraint(
+            "end_position >= start_position",
+            name="ck_conversation_memories_position_range",
+        ),
+        CheckConstraint(
+            "token_count >= 0",
+            name="ck_conversation_memories_token_count",
+        ),
+        CheckConstraint(
+            "embedding_dimension IS NULL OR embedding_dimension > 0",
+            name="ck_conversation_memories_embedding_dimension",
+        ),
+        CheckConstraint(
+            "(embedding IS NULL AND embedding_model IS NULL AND "
+            "embedding_dimension IS NULL) OR "
+            "(embedding IS NOT NULL AND embedding_model IS NOT NULL AND "
+            "embedding_dimension IS NOT NULL)",
+            name="ck_conversation_memories_embedding_fields",
+        ),
+        UniqueConstraint(
+            "conversation_id",
+            "start_position",
+            "end_position",
+            name="uq_conversation_memories_turn_range",
+        ),
+        Index(
+            "ix_conversation_memories_conversation_position",
+            "conversation_id",
+            "start_position",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    conversation_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("conversations.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    start_position: Mapped[int] = mapped_column(Integer, nullable=False)
+    end_position: Mapped[int] = mapped_column(Integer, nullable=False)
+    summary: Mapped[str] = mapped_column(Text, nullable=False)
+    token_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    embedding_model: Mapped[str | None] = mapped_column(String(255))
+    embedding_dimension: Mapped[int | None] = mapped_column(Integer)
+    embedding: Mapped[list[float] | None] = mapped_column(
+        JSON(none_as_null=True)
+    )
+
+    conversation: Mapped[Conversation] = relationship(back_populates="memories")
 
 
 class CacheState(TimestampMixin, Base):

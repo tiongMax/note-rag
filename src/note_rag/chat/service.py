@@ -3,12 +3,21 @@
 import re
 import uuid
 from collections.abc import Callable, Iterator
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Protocol
 
 from note_rag.chat.budget import PromptBudget, trim_history_to_budget
+from note_rag.chat.memory import (
+    ExtractiveTurnSummarizer,
+    MemoryEmbeddingProvider,
+    MemoryItem,
+    assemble_conversation_history,
+    contextualized_retrieval_query,
+    validate_embedding,
+)
 from note_rag.chat.models import (
     ChatGuardrailTrace,
+    ChatMemoryTrace,
     ChatResult,
     ChatStreamEvent,
     ChatTurn,
@@ -33,10 +42,9 @@ from note_rag.guardrails import (
     OutputGuardResult,
 )
 from note_rag.persistence import (
-    ChatMessageRecord,
     ChatMessageRepository,
-    ChatRole,
     Conversation,
+    ConversationMemoryRepository,
     ConversationRepository,
     Database,
 )
@@ -85,6 +93,7 @@ class _PreparedChat:
     input_decision: GuardrailDecision | None
     context_decision: GuardrailDecision | None
     filtered_context_chunks: int
+    memory_trace: ChatMemoryTrace
 
 
 class GuardrailRejectionError(ValueError):
@@ -133,6 +142,11 @@ class ChatService:
         token_counter: RegexTokenCounter | None = None,
         history_max_messages: int = 20,
         history_max_tokens: int = 2000,
+        memory_recent_turns: int = 4,
+        memory_semantic_k: int = 2,
+        memory_semantic_min_similarity: float = 0.25,
+        memory_summary_max_tokens: int = 64,
+        memory_embedding_provider: MemoryEmbeddingProvider | None = None,
         prompt_max_tokens: int = 4096,
         prompt_reserve_tokens: int = 128,
         prompt_max_characters: int | None = None,
@@ -144,6 +158,14 @@ class ChatService:
             raise ValueError("history_max_messages must be greater than zero")
         if history_max_tokens <= 0:
             raise ValueError("history_max_tokens must be greater than zero")
+        if memory_recent_turns <= 0:
+            raise ValueError("memory_recent_turns must be greater than zero")
+        if memory_semantic_k < 0:
+            raise ValueError("memory_semantic_k cannot be negative")
+        if not -1.0 <= memory_semantic_min_similarity <= 1.0:
+            raise ValueError(
+                "memory_semantic_min_similarity must be between -1 and 1"
+            )
         if prompt_max_tokens <= 0:
             raise ValueError("prompt_max_tokens must be greater than zero")
         if not 0 < prompt_reserve_tokens < prompt_max_tokens:
@@ -171,6 +193,14 @@ class ChatService:
         self.token_counter = token_counter or RegexTokenCounter()
         self.history_max_messages = history_max_messages
         self.history_max_tokens = history_max_tokens
+        self.memory_recent_turns = memory_recent_turns
+        self.memory_semantic_k = memory_semantic_k
+        self.memory_semantic_min_similarity = memory_semantic_min_similarity
+        self.memory_embedding_provider = memory_embedding_provider
+        self.memory_summarizer = ExtractiveTurnSummarizer(
+            self.token_counter,
+            max_tokens=memory_summary_max_tokens,
+        )
         self.prompt_max_tokens = prompt_max_tokens
         self.prompt_reserve_tokens = prompt_reserve_tokens
         self.prompt_max_characters = resolved_prompt_max_characters
@@ -250,6 +280,7 @@ class ChatService:
                 ],
                 "model_name": self.provider.model_name,
                 "guardrails": self._trace_for_storage(result.guardrails),
+                "memory": self._memory_trace_for_storage(result.memory),
             },
         )
         original_answer = "".join(pieces).strip()
@@ -267,6 +298,7 @@ class ChatService:
                     citation.for_storage() for citation in result.citations
                 ],
                 "guardrails": self._trace_for_storage(result.guardrails),
+                "memory": self._memory_trace_for_storage(result.memory),
             },
         )
 
@@ -291,7 +323,12 @@ class ChatService:
             if input_decision.action is GuardrailAction.BLOCK:
                 raise GuardrailRejectionError(input_decision)
         resolved = options or ChatOptions()
-        history, existing = self._load_history(conversation_id)
+        history_budget = self._history_budget(question, resolved.max_context_tokens)
+        history, existing, memory_trace = self._load_history(
+            conversation_id,
+            question=question,
+            maximum_tokens=history_budget,
+        )
         history, context_budget, _ = trim_history_to_budget(
             history,
             question=prompt_fixed_text(question),
@@ -301,8 +338,17 @@ class ChatService:
             context_max_tokens=resolved.max_context_tokens,
             token_counter=self.token_counter,
         )
-        context = self.context_builder.build(
+        retrieval_query = contextualized_retrieval_query(
             question,
+            history,
+            token_counter=self.token_counter,
+        )
+        memory_trace = replace(
+            memory_trace,
+            retrieval_query_tokens=self.token_counter.count(retrieval_query),
+        )
+        context = self.context_builder.build(
+            retrieval_query,
             mode=resolved.mode,
             candidate_k=resolved.candidate_k,
             max_chunks=resolved.max_chunks,
@@ -350,14 +396,27 @@ class ChatService:
             input_decision=input_decision,
             context_decision=context_decision,
             filtered_context_chunks=filtered_context_chunks,
+            memory_trace=memory_trace,
         )
+
+    def _history_budget(self, question: str, context_max_tokens: int) -> int:
+        fixed_tokens = self.token_counter.count(GROUNDED_SYSTEM_PROMPT)
+        fixed_tokens += self.token_counter.count(prompt_fixed_text(question))
+        usable = self.prompt_max_tokens - self.prompt_reserve_tokens - fixed_tokens
+        if usable <= 0:
+            return 0
+        reserved_context = min(context_max_tokens, max(1, usable // 2))
+        return min(self.history_max_tokens, max(0, usable - reserved_context))
 
     def _load_history(
         self,
         conversation_id: uuid.UUID | None,
-    ) -> tuple[list[ChatTurn], uuid.UUID | None]:
+        *,
+        question: str,
+        maximum_tokens: int,
+    ) -> tuple[list[ChatTurn], uuid.UUID | None, ChatMemoryTrace]:
         if conversation_id is None:
-            return [], None
+            return [], None, ChatMemoryTrace(0, 0, 0, 0, 0, None, 0)
         with self.database.session() as session:
             conversation = ConversationRepository(session).get(conversation_id)
             if conversation is None:
@@ -365,18 +424,41 @@ class ChatService:
             messages = ChatMessageRepository(session).list_for_conversation(
                 conversation_id
             )
-        selected: list[ChatMessageRecord] = []
-        used_tokens = 0
-        for message in reversed(messages[-self.history_max_messages :]):
-            if used_tokens + message.token_count > self.history_max_tokens:
-                break
-            selected.append(message)
-            used_tokens += message.token_count
-        selected.reverse()
-        return [
-            ChatTurn(role=message.role.value, content=message.content)
-            for message in selected
-        ], conversation_id
+            memories = ConversationMemoryRepository(
+                session
+            ).list_for_conversation(conversation_id)
+        assembly = assemble_conversation_history(
+            [
+                (
+                    message.position,
+                    message.role.value,
+                    message.content,
+                    message.token_count,
+                )
+                for message in messages
+            ],
+            [
+                MemoryItem(
+                    start_position=memory.start_position,
+                    end_position=memory.end_position,
+                    summary=memory.summary,
+                    token_count=memory.token_count,
+                    embedding_model=memory.embedding_model,
+                    embedding_dimension=memory.embedding_dimension,
+                    embedding=memory.embedding,
+                )
+                for memory in memories
+            ],
+            question=question,
+            token_counter=self.token_counter,
+            embedding_provider=self.memory_embedding_provider,
+            recent_turns=self.memory_recent_turns,
+            semantic_k=self.memory_semantic_k,
+            semantic_min_similarity=self.memory_semantic_min_similarity,
+            maximum_tokens=maximum_tokens,
+            maximum_recent_messages=self.history_max_messages,
+        )
+        return assembly.turns, conversation_id, assembly.trace
 
     def _finalize(
         self,
@@ -400,6 +482,10 @@ class ChatService:
             prepared.turns,
         )
         guardrail_trace = self._guardrail_trace(prepared, guarded_output)
+        summary = self.memory_summarizer.summarize(prepared.question, answer)
+        embedding_model, embedding_dimension, embedding = self._embed_memory(
+            summary
+        )
         with self.database.session() as session:
             conversations = ConversationRepository(session)
             conversation = (
@@ -415,21 +501,25 @@ class ChatService:
             if conversation is None:
                 raise LookupError("conversation not found")
             messages = ChatMessageRepository(session)
-            messages.add(
+            user_message, message = messages.add_pair(
                 conversation,
-                role=ChatRole.USER,
-                content=prepared.question,
-                token_count=self.token_counter.count(prepared.question),
-                context_token_count=prepared.context.token_count,
-            )
-            message = messages.add(
-                conversation,
-                role=ChatRole.ASSISTANT,
-                content=answer,
-                token_count=self.token_counter.count(answer),
+                user_content=prepared.question,
+                user_token_count=self.token_counter.count(prepared.question),
+                assistant_content=answer,
+                assistant_token_count=self.token_counter.count(answer),
                 citations=[item.for_storage() for item in citations],
                 context_token_count=prepared.context.token_count,
                 model_name=self.provider.model_name,
+            )
+            ConversationMemoryRepository(session).add(
+                conversation,
+                start_position=user_message.position,
+                end_position=message.position,
+                summary=summary,
+                token_count=self.token_counter.count(summary),
+                embedding_model=embedding_model,
+                embedding_dimension=embedding_dimension,
+                embedding=embedding,
             )
         return ChatResult(
             conversation_id=prepared.conversation_id,
@@ -444,7 +534,25 @@ class ChatService:
             ),
             prompt_token_budget=prepared.prompt_budget.maximum,
             guardrails=guardrail_trace,
+            memory=prepared.memory_trace,
         )
+
+    def _embed_memory(
+        self,
+        summary: str,
+    ) -> tuple[str | None, int | None, list[float] | None]:
+        provider = self.memory_embedding_provider
+        if provider is None:
+            return None, None, None
+        try:
+            vectors = provider.embed([summary])
+            if len(vectors) != 1:
+                raise ValueError("memory embedder returned the wrong vector count")
+            vector = vectors[0]
+            validate_embedding(vector, provider.dimension)
+        except Exception:
+            return None, None, None
+        return provider.model_name, provider.dimension, vector
 
     def _enforce_output_character_limit(self, answer: str) -> None:
         if len(answer) > self.output_max_characters:
@@ -527,6 +635,24 @@ class ChatService:
             "filtered_context_chunks": trace.filtered_context_chunks,
             "lexical_groundedness_proxy": trace.lexical_groundedness_proxy,
             "lexical_relevance_proxy": trace.lexical_relevance_proxy,
+        }
+
+    @staticmethod
+    def _memory_trace_for_storage(
+        trace: ChatMemoryTrace | None,
+    ) -> dict[str, object] | None:
+        if trace is None:
+            return None
+        return {
+            "recent_message_count": trace.recent_message_count,
+            "semantic_memory_count": trace.semantic_memory_count,
+            "available_older_memory_count": (
+                trace.available_older_memory_count
+            ),
+            "recent_tokens": trace.recent_tokens,
+            "semantic_memory_tokens": trace.semantic_memory_tokens,
+            "embedding_model": trace.embedding_model,
+            "retrieval_query_tokens": trace.retrieval_query_tokens,
         }
 
     @staticmethod

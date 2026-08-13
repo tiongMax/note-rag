@@ -20,6 +20,7 @@ from note_rag.guardrails import (
 from note_rag.persistence import (
     ChatMessageRepository,
     ChatRole,
+    ConversationMemoryRepository,
     ConversationRepository,
     Database,
 )
@@ -143,6 +144,26 @@ class TrackingContextBuilder(StubContextBuilder):
         return super().build(query)
 
 
+class TopicEmbeddingProvider:
+    model_name = "topic-embedding-v1"
+    dimension = 3
+
+    def embed(self, texts: list[str]) -> list[list[float]]:
+        return [self._vector(text) for text in texts]
+
+    def embed_query(self, query: str) -> list[float]:
+        return self._vector(query)
+
+    @staticmethod
+    def _vector(text: str) -> list[float]:
+        text = text.casefold()
+        return [
+            float("orion" in text or "project" in text),
+            float("apple" in text or "orchard" in text),
+            float("meeting" in text or "tuesday" in text),
+        ]
+
+
 def test_persists_chat_and_valid_citations(database: Database) -> None:
     provider = FakeChatProvider()
     service = ChatService(database, StubContextBuilder(), provider)
@@ -174,6 +195,12 @@ def test_persists_chat_and_valid_citations(database: Database) -> None:
         ]
         assert messages[1].citations[0]["filename"] == "lesson.txt"
         assert messages[1].model_name == "fake-chat"
+        memories = ConversationMemoryRepository(
+            session
+        ).list_for_conversation(result.conversation_id)
+        assert len(memories) == 1
+        assert memories[0].start_position == 0
+        assert memories[0].end_position == 1
 
 
 def test_reuses_conversation_history(database: Database) -> None:
@@ -338,3 +365,65 @@ def test_global_prompt_budget_trims_oldest_history(database: Database) -> None:
     sent = provider.calls[-1]
     assert all("First question" not in turn.content for turn in sent)
     assert result.prompt_token_count <= result.prompt_token_budget
+
+
+def test_semantic_memory_recalls_old_turn_and_keeps_recent_verbatim(
+    database: Database,
+) -> None:
+    provider = FakeChatProvider()
+    embedding_provider = TopicEmbeddingProvider()
+    service = ChatService(
+        database,
+        StubContextBuilder(),
+        provider,
+        memory_embedding_provider=embedding_provider,
+        memory_recent_turns=1,
+        memory_semantic_k=1,
+        memory_semantic_min_similarity=0.0,
+    )
+    first = service.ask("The Orion project launch code is amber")
+    service.ask("My meeting is Tuesday", conversation_id=first.conversation_id)
+
+    result = service.ask(
+        "What was that project code?",
+        conversation_id=first.conversation_id,
+    )
+
+    sent = provider.calls[-1]
+    assert "Orion project launch code" in sent[0].content
+    assert sent[1].content == "My meeting is Tuesday"
+    assert sent[2].content.startswith("Apples grow")
+    assert result.memory is not None
+    assert result.memory.semantic_memory_count == 1
+    assert result.memory.recent_message_count == 2
+    assert result.memory.embedding_model == "topic-embedding-v1"
+    assert "Conversation cues" in result.generation_context.query
+
+
+def test_memory_embedding_failure_does_not_rollback_successful_chat(
+    database: Database,
+) -> None:
+    class BrokenEmbeddingProvider(TopicEmbeddingProvider):
+        def embed(self, texts: list[str]) -> list[list[float]]:
+            del texts
+            raise RuntimeError("provider unavailable")
+
+    service = ChatService(
+        database,
+        StubContextBuilder(),
+        FakeChatProvider(),
+        memory_embedding_provider=BrokenEmbeddingProvider(),
+    )
+
+    result = service.ask("Where do apples grow?")
+
+    with database.session() as session:
+        messages = ChatMessageRepository(session).list_for_conversation(
+            result.conversation_id
+        )
+        memories = ConversationMemoryRepository(
+            session
+        ).list_for_conversation(result.conversation_id)
+    assert len(messages) == 2
+    assert len(memories) == 1
+    assert memories[0].embedding is None

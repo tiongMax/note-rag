@@ -397,6 +397,7 @@ def test_chat_persists_history_and_citations(
     )
     assert evaluation.json()["guardrails"]["input"]["action"] == "allow"
     assert evaluation.json()["guardrails"]["context"]["action"] == "allow"
+    assert evaluation.json()["memory"]["recent_message_count"] == 0
     generation_chunk_ids = {
         chunk["chunk_id"]
         for chunk in evaluation.json()["generation_context"]["chunks"]
@@ -406,6 +407,9 @@ def test_chat_persists_history_and_citations(
     }
     assert citation_chunk_ids <= generation_chunk_ids
     assert follow_up.status_code == 200
+    assert follow_up.json()["memory"]["recent_message_count"] == 2
+    assert follow_up.json()["memory"]["semantic_memory_count"] == 0
+    assert "embedding_model" not in follow_up.json()["memory"]
     assert conversation.status_code == 200
     assert conversation.json()["message_count"] == 4
     assert [item["role"] for item in conversation.json()["messages"]] == [

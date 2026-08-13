@@ -2,6 +2,7 @@
 
 from note_rag.chat.models import (
     ChatGuardrailTrace,
+    ChatMemoryTrace,
     ChatResult,
     ChatStreamEvent,
     ChatTurn,
@@ -35,6 +36,7 @@ __all__ = [
     "ChatContextBuilder",
     "ChatGenerationError",
     "ChatGuardrailTrace",
+    "ChatMemoryTrace",
     "ChatOutputLimitError",
     "ChatOutputValidationError",
     "ChatProvider",

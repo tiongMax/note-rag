@@ -6,6 +6,7 @@ from note_rag.persistence import (
     ChatMessageRepository,
     ChatRole,
     Conversation,
+    ConversationMemoryRepository,
     ConversationRepository,
     Database,
 )
@@ -43,6 +44,16 @@ def test_live_conversation_message_round_trip() -> None:
                 context_token_count=20,
                 model_name="fake-chat",
             )
+            ConversationMemoryRepository(session).add(
+                conversation,
+                start_position=0,
+                end_position=1,
+                summary="Earlier user: Stored question",
+                token_count=5,
+                embedding_model="fake-embedding",
+                embedding_dimension=2,
+                embedding=[1.0, 0.0],
+            )
 
         with database.session() as session:
             messages = ChatMessageRepository(session).list_for_conversation(
@@ -50,6 +61,10 @@ def test_live_conversation_message_round_trip() -> None:
             )
             assert [message.position for message in messages] == [0, 1]
             assert messages[1].citations == [{"citation_id": 1}]
+            memories = ConversationMemoryRepository(
+                session
+            ).list_for_conversation(conversation_id)
+            assert memories[0].embedding == [1.0, 0.0]
     finally:
         if conversation_id is not None:
             with database.session() as session:

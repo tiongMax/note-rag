@@ -1,0 +1,24 @@
+{
+  "dataset": "note-rag-conversation-memory-regression",
+  "dataset_version": "1.0.0",
+  "schema_version": "1.0",
+  "cases": "benchmarks/conversation_memory/cases.jsonl",
+  "cases_sha256": "54a56cdf9a0decf165f50152c9e57890c13ad84ff11e9545fe3661d9e6393f73",
+  "case_count": 50,
+  "split": "regression",
+  "synthetic": true,
+  "held_out": false,
+  "task": "Retain and select an explicitly stated fact from an older conversation turn.",
+  "creation_methodology": {
+    "method": "Manual synthetic fact, paraphrased follow-up query, and exact expected-answer authoring.",
+    "conversation_shape": "The target fact is followed by fifteen unrelated completed turns before the final query.",
+    "review_status": "Single-author labels; no independent adjudication or model-generated answers.",
+    "production_traffic_used": false,
+    "real_user_data_used": false
+  },
+  "metric_contract": {
+    "accuracy": "Case-insensitive retention of both the case subject and exact expected answer in assembled conversation history.",
+    "token_reduction": "One minus production assembled-history tokens divided by full raw-history tokens, averaged per case.",
+    "claim_boundary": "This measures deterministic memory fact retention and selection, not generated-answer accuracy or semantic judge quality."
+  }
+}
