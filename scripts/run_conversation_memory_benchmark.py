@@ -318,10 +318,15 @@ def select_previous_recent_only_history(
     return selected
 
 
-def git_value(*args: str) -> str | None:
+def git_value(*args: str, allow_empty: bool = False) -> str | None:
     try:
         result = subprocess.run(
-            ["git", *args],
+            [
+                "git",
+                "-c",
+                f"safe.directory={REPOSITORY_ROOT.as_posix()}",
+                *args,
+            ],
             cwd=REPOSITORY_ROOT,
             capture_output=True,
             check=True,
@@ -329,7 +334,8 @@ def git_value(*args: str) -> str | None:
         )
     except (OSError, subprocess.CalledProcessError):
         return None
-    return result.stdout.strip() or None
+    output = result.stdout.strip()
+    return output if output or allow_empty else None
 
 
 def main() -> int:
@@ -364,6 +370,8 @@ def main() -> int:
         encoding="utf-8",
         newline="\n",
     )
+    git_commit = git_value("rev-parse", "HEAD")
+    git_status = git_value("status", "--porcelain", allow_empty=True)
     summary = {
         "schema_version": "1.0",
         "run_label": args.label,
@@ -394,8 +402,8 @@ def main() -> int:
             "machine": platform.machine(),
         },
         "implementation": {
-            "git_commit": git_value("rev-parse", "HEAD"),
-            "git_dirty": bool(git_value("status", "--porcelain")),
+            "git_commit": git_commit,
+            "git_dirty": None if git_status is None else bool(git_status),
             "memory_source_sha256": sha256_file(
                 REPOSITORY_ROOT / "src" / "note_rag" / "chat" / "memory.py"
             ),

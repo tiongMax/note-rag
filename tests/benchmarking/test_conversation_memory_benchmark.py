@@ -106,3 +106,17 @@ def test_previous_recent_only_selection_stops_at_first_oversized_message() -> No
     )
 
     assert selected == [(2, "user", "recent", 1)]
+
+
+def test_git_provenance_distinguishes_clean_output_from_failure(
+    monkeypatch,
+) -> None:
+    runner = load_runner()
+
+    class Result:
+        stdout = ""
+
+    monkeypatch.setattr(runner.subprocess, "run", lambda *args, **kwargs: Result())
+
+    assert runner.git_value("status", "--porcelain", allow_empty=True) == ""
+    assert runner.git_value("status", "--porcelain") is None
