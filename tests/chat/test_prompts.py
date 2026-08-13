@@ -2,8 +2,11 @@ import uuid
 
 from note_rag.chat import (
     GROUNDED_SYSTEM_PROMPT,
+    NO_RETRIEVED_CONTEXT,
     ChatTurn,
     build_chat_turns,
+    prompt_sha256,
+    rendered_generation_context,
 )
 from note_rag.context import ContextChunk, ContextPackage
 from note_rag.retrieval import SearchMode
@@ -46,3 +49,30 @@ def test_prompt_includes_history_context_question_and_citation_rules() -> None:
     assert "Current question" in turns[-1].content
     assert "only the supplied context" in GROUNDED_SYSTEM_PROMPT
     assert "[1]" in GROUNDED_SYSTEM_PROMPT
+
+    first_hash = prompt_sha256(GROUNDED_SYSTEM_PROMPT, turns)
+    assert first_hash == prompt_sha256(GROUNDED_SYSTEM_PROMPT, list(turns))
+    assert first_hash != prompt_sha256(
+        GROUNDED_SYSTEM_PROMPT,
+        [*turns, ChatTurn(role="user", content="changed")],
+    )
+
+
+def test_empty_context_uses_one_canonical_generation_fallback() -> None:
+    context = ContextPackage(
+        query="unknown",
+        mode=SearchMode.HYBRID,
+        context="",
+        chunks=[],
+        token_count=0,
+        token_budget=100,
+        candidates_considered=0,
+        duplicates_removed=0,
+        truncated=False,
+        reranker_model="test",
+    )
+
+    turns = build_chat_turns("Unknown question", context, [])
+
+    assert rendered_generation_context(context) == NO_RETRIEVED_CONTEXT
+    assert NO_RETRIEVED_CONTEXT in turns[-1].content

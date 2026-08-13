@@ -98,9 +98,13 @@ def write_evaluation_artifacts(
     results_path = output_dir / f"{label}.{kind}.results.jsonl"
     summary_path = output_dir / f"{label}.{kind}.summary.json"
     write_jsonl(results_path, results)
+    summary_metadata = {
+        **dict(metadata),
+        "results_sha256": sha256_file(results_path),
+    }
     summary_path.write_text(
         json.dumps(
-            {"metadata": dict(metadata), "metrics": dict(metrics)},
+            {"metadata": summary_metadata, "metrics": dict(metrics)},
             ensure_ascii=False,
             indent=2,
             default=str,

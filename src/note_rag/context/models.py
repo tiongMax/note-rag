@@ -36,3 +36,4 @@ class ContextPackage:
     duplicates_removed: int
     truncated: bool
     reranker_model: str | None
+    corpus_version: int = 0

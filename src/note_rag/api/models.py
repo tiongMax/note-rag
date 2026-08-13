@@ -186,10 +186,12 @@ class ContextResponse(BaseModel):
     duplicates_removed: int
     truncated: bool
     reranker_model: str | None
+    corpus_version: int
 
 
 class ChatRequest(ContextRequest):
     conversation_id: uuid.UUID | None = None
+    include_generation_context: bool = False
 
 
 class CitationResponse(BaseModel):
@@ -211,6 +213,8 @@ class ChatResponse(BaseModel):
     answer: str
     citations: list[CitationResponse]
     model_name: str
+    generation_context: ContextResponse | None = None
+    generation_prompt_sha256: str | None = None
 
 
 class ChatMessageResponse(BaseModel):

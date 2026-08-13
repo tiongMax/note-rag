@@ -8,6 +8,7 @@ import pytest
 from note_rag.evaluation import (
     build_run_metadata,
     load_jsonl,
+    sha256_file,
     validate_run_label,
     write_evaluation_artifacts,
 )
@@ -38,6 +39,7 @@ def test_writes_provenance_and_evaluation_artifacts(tmp_path: Path) -> None:
         dataset_path=dataset,
         configuration={"mode": "hybrid"},
     )
+    original_metadata = dict(metadata)
 
     results_path, summary_path = write_evaluation_artifacts(
         output_dir=tmp_path / "results",
@@ -52,4 +54,7 @@ def test_writes_provenance_and_evaluation_artifacts(tmp_path: Path) -> None:
     summary = json.loads(summary_path.read_text(encoding="utf-8"))
     assert summary["metadata"]["dataset_sha256"]
     assert summary["metadata"]["mode"] == "hybrid"
+    assert summary["metadata"]["results_sha256"] == sha256_file(results_path)
+    assert metadata == original_metadata
+    assert "results_sha256" not in metadata
     assert summary["metrics"] == {"sample_count": 1, "score": 1.0}

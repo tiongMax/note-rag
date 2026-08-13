@@ -107,6 +107,7 @@ class ContextBuilder:
                 if rerank and self.reranker is not None
                 else None
             ),
+            corpus_version=result.corpus_version,
         )
 
     def _rerank(

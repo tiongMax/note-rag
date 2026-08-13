@@ -12,7 +12,12 @@ from note_rag.chat.models import (
     ChatTurn,
     Citation,
 )
-from note_rag.chat.prompts import GROUNDED_SYSTEM_PROMPT, build_chat_turns
+from note_rag.chat.prompts import (
+    GROUNDED_SYSTEM_PROMPT,
+    build_chat_turns,
+    prompt_sha256,
+    rendered_generation_context,
+)
 from note_rag.chat.providers import ChatProvider
 from note_rag.chunking import RegexTokenCounter
 from note_rag.context import ContextPackage
@@ -244,6 +249,32 @@ class ChatService:
             answer=answer,
             citations=citations,
             model_name=self.provider.model_name,
+            generation_context=self._generation_context(prepared.context),
+            generation_prompt_sha256=prompt_sha256(
+                GROUNDED_SYSTEM_PROMPT,
+                prepared.turns,
+            ),
+        )
+
+    @staticmethod
+    def _generation_context(context: ContextPackage) -> ContextPackage:
+        """Expose the exact evidence text used by prompt construction."""
+
+        rendered = rendered_generation_context(context)
+        if rendered == context.context:
+            return context
+        return ContextPackage(
+            query=context.query,
+            mode=context.mode,
+            context=rendered,
+            chunks=context.chunks,
+            token_count=context.token_count,
+            token_budget=context.token_budget,
+            candidates_considered=context.candidates_considered,
+            duplicates_removed=context.duplicates_removed,
+            truncated=context.truncated,
+            reranker_model=context.reranker_model,
+            corpus_version=context.corpus_version,
         )
 
     @staticmethod

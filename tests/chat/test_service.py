@@ -3,7 +3,12 @@ from collections.abc import Iterator
 
 import pytest
 
-from note_rag.chat import ChatService, ChatTurn
+from note_rag.chat import (
+    GROUNDED_SYSTEM_PROMPT,
+    ChatService,
+    ChatTurn,
+    prompt_sha256,
+)
 from note_rag.context import ContextChunk, ContextPackage
 from note_rag.persistence import (
     ChatMessageRepository,
@@ -56,6 +61,23 @@ class StubContextBuilder:
         )
 
 
+class EmptyContextBuilder:
+    def build(self, query: str, **kwargs: object) -> ContextPackage:
+        del kwargs
+        return ContextPackage(
+            query=query,
+            mode=SearchMode.HYBRID,
+            context="",
+            chunks=[],
+            token_count=0,
+            token_budget=100,
+            candidates_considered=0,
+            duplicates_removed=0,
+            truncated=False,
+            reranker_model="fake-reranker",
+        )
+
+
 class FakeChatProvider:
     model_name = "fake-chat"
 
@@ -88,6 +110,14 @@ def test_persists_chat_and_valid_citations(database: Database) -> None:
 
     assert result.answer.startswith("Apples grow")
     assert [citation.citation_id for citation in result.citations] == [1]
+    assert result.generation_context.context in provider.calls[0][-1].content
+    assert result.generation_context.chunks[0].text == (
+        "Apples grow in orchards."
+    )
+    assert result.generation_prompt_sha256 == prompt_sha256(
+        GROUNDED_SYSTEM_PROMPT,
+        provider.calls[0],
+    )
     with database.session() as session:
         conversation = ConversationRepository(session).get(
             result.conversation_id
@@ -152,3 +182,17 @@ def test_rejects_unknown_conversation(database: Database) -> None:
 
     with pytest.raises(LookupError, match="conversation not found"):
         service.ask("Question", conversation_id=uuid.uuid4())
+
+
+def test_returns_exact_empty_context_fallback_used_for_generation(
+    database: Database,
+) -> None:
+    provider = FakeChatProvider()
+    service = ChatService(database, EmptyContextBuilder(), provider)
+
+    result = service.ask("Unknown question")
+
+    assert result.generation_context.context in provider.calls[0][-1].content
+    assert result.generation_context.context == (
+        "(No relevant context was retrieved.)"
+    )

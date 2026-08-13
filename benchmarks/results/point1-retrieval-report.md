@@ -26,7 +26,7 @@ reproduces the stated +11.9%.
 
 ## Controls
 
-- 48 human-labeled questions, six indexed lecture PDFs, Gemini embedding model
+- 48 version-controlled questions, six indexed lecture PDFs, Gemini embedding model
   `gemini-embedding-2`, top-k 20, vector weight 0.7, BM25 `k1=1.5`, `b=0.75`,
   RRF `k=60`, and passage relevance threshold 0.5.
 - Each cell ran through the FastAPI request path for three repetitions. The

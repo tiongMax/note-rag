@@ -181,6 +181,8 @@ def test_cache_layers_can_be_enabled_independently(database: Database) -> None:
 
     assert first.retrieval_cache_status == "disabled"
     assert second.retrieval_cache_status == "disabled"
+    assert first.corpus_version == 1
+    assert second.corpus_version == 1
     assert second.embedding_cache_status == "hit"
     assert provider.query_calls == 1
 

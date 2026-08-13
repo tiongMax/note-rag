@@ -4,6 +4,8 @@ import uuid
 from dataclasses import dataclass
 from typing import Any
 
+from note_rag.context import ContextPackage
+
 
 @dataclass(frozen=True, slots=True)
 class ChatTurn:
@@ -38,6 +40,8 @@ class ChatResult:
     answer: str
     citations: list[Citation]
     model_name: str
+    generation_context: ContextPackage
+    generation_prompt_sha256: str
 
 
 @dataclass(frozen=True, slots=True)

@@ -265,13 +265,22 @@ def create_app(
         )
 
     @app.get("/health", tags=["system"])
-    async def health() -> dict[str, str | bool]:
+    async def health() -> dict[str, str | bool | int | float]:
         return {
             "status": "ok",
             "service": app_settings.app_name,
+            "version": __version__,
+            "git_commit": app_settings.app_git_commit,
             "environment": app_settings.app_environment,
             "chunking_strategy": app_settings.chunking_strategy,
             "lexical_backend": app_settings.retrieval_lexical_backend,
+            "embedding_model": resolved_embedding_provider.model_name,
+            "embedding_dimension": resolved_embedding_provider.dimension,
+            "reranker_model": resolved_reranker.model_name,
+            "rerank_weight": app_settings.rerank_weight,
+            "chat_model": resolved_chat_provider.model_name,
+            "chat_temperature": app_settings.chat_temperature,
+            "chat_max_output_tokens": app_settings.chat_max_output_tokens,
             "embedding_cache_enabled": (
                 app_settings.cache_enabled
                 and app_settings.embedding_cache_enabled
@@ -280,6 +289,7 @@ def create_app(
                 app_settings.cache_enabled
                 and app_settings.retrieval_cache_enabled
             ),
+            "corpus_version": retrieval_cache.corpus_version(),
         }
 
     @app.get("/health/ready", tags=["system"])
@@ -585,6 +595,7 @@ def create_app(
     @app.post(
         "/api/v1/chat",
         response_model=ChatResponse,
+        response_model_exclude_none=True,
         tags=["chat"],
     )
     async def chat(request: ChatRequest) -> ChatResponse:
@@ -601,7 +612,11 @@ def create_app(
             raise HTTPException(status_code=422, detail=str(error)) from error
         except RuntimeError as error:
             raise HTTPException(status_code=503, detail=str(error)) from error
-        return ChatResponse.model_validate(result, from_attributes=True)
+        response = ChatResponse.model_validate(result, from_attributes=True)
+        if not request.include_generation_context:
+            response.generation_context = None
+            response.generation_prompt_sha256 = None
+        return response
 
     @app.post(
         "/api/v1/chat/stream",

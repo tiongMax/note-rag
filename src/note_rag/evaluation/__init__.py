@@ -1,5 +1,8 @@
 """Reusable retrieval, answer-quality, and experiment artifact helpers."""
 
+from note_rag.evaluation.answer_quality import (
+    evaluate_deterministic_answer_quality,
+)
 from note_rag.evaluation.artifacts import (
     build_run_metadata,
     load_jsonl,
@@ -26,6 +29,7 @@ __all__ = [
     "aggregate_numeric_scores",
     "aggregate_query_metrics",
     "aggregate_ragas_scores",
+    "evaluate_deterministic_answer_quality",
     "evaluate_query",
     "passage_coverage",
     "summarize_latencies",

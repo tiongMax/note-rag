@@ -365,6 +365,14 @@ def test_chat_persists_history_and_citations(
             "filters": {"filenames": ["chat.txt"]},
         },
     )
+    evaluation = client.post(
+        "/api/v1/chat",
+        json={
+            "query": "Where do apples grow?",
+            "filters": {"filenames": ["chat.txt"]},
+            "include_generation_context": True,
+        },
+    )
     follow_up = client.post(
         "/api/v1/chat",
         json={
@@ -380,6 +388,18 @@ def test_chat_persists_history_and_citations(
     assert upload.status_code == 201
     assert first.status_code == 200
     assert first.json()["citations"][0]["filename"] == "chat.txt"
+    assert "generation_context" not in first.json()
+    assert "generation_prompt_sha256" not in first.json()
+    assert evaluation.status_code == 200
+    assert len(evaluation.json()["generation_prompt_sha256"]) == 64
+    generation_chunk_ids = {
+        chunk["chunk_id"]
+        for chunk in evaluation.json()["generation_context"]["chunks"]
+    }
+    citation_chunk_ids = {
+        citation["chunk_id"] for citation in evaluation.json()["citations"]
+    }
+    assert citation_chunk_ids <= generation_chunk_ids
     assert follow_up.status_code == 200
     assert conversation.status_code == 200
     assert conversation.json()["message_count"] == 4

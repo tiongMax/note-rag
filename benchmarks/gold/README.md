@@ -1,7 +1,8 @@
 # Gold retrieval dataset
 
-This directory contains the first human-authored retrieval benchmark for the
-local operating-systems lecture corpus.
+This directory contains a 48-question retrieval benchmark for the local
+operating-systems lecture corpus. The Git history records its author, but the
+repository does not yet contain independent annotation-review attestations.
 
 ## Files
 
@@ -209,10 +210,11 @@ sentence that attributes one MRR and Recall@5 improvement to both changes.
 
 ## Collect and judge generated answers
 
-Answer-quality evaluation is a two-stage offline workflow. Collection calls the
-context and chat endpoints for every gold question and records replayable
-samples with retrieved contexts, citations, token counts, and separate context
-and chat latencies. Judging can then be repeated without regenerating answers.
+Answer-quality evaluation is a two-stage offline workflow. Collection makes one
+chat call per gold question and returns the exact generation context from that
+same request. Samples pin the prompt hash, answer model, effective runtime
+settings, ready/indexed source hashes, and corpus version. Judging can then be
+repeated without regenerating answers.
 
 Collect a small smoke sample from an indexed API:
 
@@ -220,11 +222,30 @@ Collect a small smoke sample from an indexed API:
 .venv\Scripts\python.exe scripts\run_ragas_evaluation.py `
   --label recursive-smoke `
   --base-url http://127.0.0.1:8002 `
-  --limit 3 --collect-only
+  --limit 3 --collect-only `
+  --candidate-k 20 --max-context-tokens 1200 --rerank-weight 0.7 `
+  --expect-chunking-strategy recursive `
+  --expect-lexical-backend bm25 `
+  --expect-answer-model gemini-3.5-flash-lite
 ```
 
-Install the optional evaluation dependencies and judge the saved samples with
-Gemini-backed RAGAS metrics:
+Run the default deterministic lexical/citation proxies locally. These metrics
+are regression signals and are never labelled as RAGAS:
+
+```powershell
+.venv\Scripts\python.exe scripts\run_ragas_evaluation.py `
+  --label recursive-smoke-deterministic `
+  --limit 3 `
+  --samples tmp\benchmarks\recursive-smoke.rag-samples.results.jsonl `
+  --candidate-k 20 --max-context-tokens 1200 --rerank-weight 0.7 `
+  --expect-chunking-strategy recursive `
+  --expect-lexical-backend bm25 `
+  --expect-answer-model gemini-3.5-flash-lite
+```
+
+Install the optional dependencies and explicitly select Gemini-backed RAGAS.
+This sends the saved questions, answers, references, and retrieved chunk bodies
+to Google; run it only when that data transfer is authorized:
 
 ```powershell
 .venv\Scripts\python.exe -m pip install -e ".[evaluation]"
@@ -232,15 +253,24 @@ Gemini-backed RAGAS metrics:
 .venv\Scripts\python.exe scripts\run_ragas_evaluation.py `
   --label recursive-smoke `
   --limit 3 `
-  --samples tmp\benchmarks\recursive-smoke.rag-samples.results.jsonl
+  --samples tmp\benchmarks\recursive-smoke.rag-samples.results.jsonl `
+  --evaluator ragas-google `
+  --candidate-k 20 --max-context-tokens 1200 --rerank-weight 0.7 `
+  --expect-chunking-strategy recursive `
+  --expect-lexical-backend bm25 `
+  --expect-answer-model gemini-3.5-flash-lite
 ```
 
-Remove `--limit` for all 48 questions. The default metrics are faithfulness,
-answer relevancy, answer correctness, context precision, and context recall.
-Use `--metrics` for a subset. Evaluator settings come from
+Remove `--limit` and add `--require-full-dataset --expected-count 48` for the
+complete set. RAGAS metrics are faithfulness, answer relevancy, answer
+correctness, context precision, and context recall. Use `--metrics` for a
+subset. RAGAS evaluates the exact final chunk bodies; the complete rendered
+prompt context is retained separately for audit. Evaluator settings come from
 `RAGAS_EVALUATOR_MODEL` and `RAGAS_EMBEDDING_MODEL`; credentials are read from
 `GEMINI_API_KEY` or `GOOGLE_API_KEY` and are never written to artifacts.
 
-All summaries pin the dataset SHA-256 and the complete retrieval/context
-configuration. Keep raw per-question output under `tmp/benchmarks`; copy only a
-reviewed compact report into version control after a controlled final run.
+The runner rejects a mismatched gold manifest, missing or changed source,
+runtime-control mismatch, model change, malformed sample, tampered JSONL, and
+corpus-version change. Keep raw per-question output under `tmp/benchmarks`;
+copy only a reviewed compact report into version control after a controlled
+final run.

@@ -23,6 +23,7 @@ def _env_csv(name: str, default: tuple[str, ...]) -> tuple[str, ...]:
 class ApiSettings:
     app_name: str = "Note RAG"
     app_environment: str = "development"
+    app_git_commit: str = ""
     chunking_strategy: str = "fixed"
     chunk_size: int = 200
     chunk_overlap: int = 20
@@ -151,6 +152,7 @@ class ApiSettings:
         return cls(
             app_name=os.getenv("APP_NAME", "Note RAG"),
             app_environment=os.getenv("APP_ENVIRONMENT", "development"),
+            app_git_commit=os.getenv("APP_GIT_COMMIT", "").strip(),
             chunking_strategy=os.getenv(
                 "CHUNKING_STRATEGY",
                 "fixed",

@@ -223,8 +223,6 @@ class PersistentRetrievalCache:
             )
 
     def corpus_version(self) -> int:
-        if not self.retrieval_enabled:
-            return 0
         with self.database.session() as session:
             state = session.get(CacheState, _CORPUS_VERSION_KEY)
             version = state.value if state is not None else 1
@@ -238,8 +236,6 @@ class PersistentRetrievalCache:
         reason: str,
         session: Session | None = None,
     ) -> int:
-        if not self.retrieval_enabled:
-            return 0
         if session is None:
             with self.database.session() as owned_session:
                 version = self._invalidate(owned_session)
