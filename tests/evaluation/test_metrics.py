@@ -3,9 +3,11 @@ import pytest
 from note_rag.evaluation import (
     GoldPassage,
     RetrievedChunk,
+    aggregate_numeric_scores,
     aggregate_query_metrics,
     evaluate_query,
     passage_coverage,
+    summarize_latencies,
 )
 
 
@@ -72,3 +74,15 @@ def test_macro_aggregates_metrics_and_latency_percentiles() -> None:
     assert summary["latency_mean_ms"] == pytest.approx(20)
     assert summary["latency_p50_ms"] == pytest.approx(20)
     assert summary["latency_p95_ms"] == pytest.approx(29)
+
+
+def test_aggregates_generic_scores_and_named_latency_samples() -> None:
+    assert aggregate_numeric_scores([{"accuracy": 1.0}, {"accuracy": 0.5}]) == {
+        "sample_count": 2,
+        "accuracy": 0.75,
+    }
+    summary = summarize_latencies([10.0, 20.0, 30.0], prefix="guardrail")
+    assert summary["guardrail_count"] == 3
+    assert summary["guardrail_mean_ms"] == pytest.approx(20)
+    assert summary["guardrail_p50_ms"] == pytest.approx(20)
+    assert summary["guardrail_p95_ms"] == pytest.approx(29)

@@ -199,3 +199,55 @@ def aggregate_query_metrics(
     summary["latency_p50_ms"] = _percentile(latencies_ms, 0.50)
     summary["latency_p95_ms"] = _percentile(latencies_ms, 0.95)
     return summary
+
+
+def aggregate_numeric_scores(
+    scores: Sequence[Mapping[str, float]],
+) -> dict[str, float | int]:
+    """Macro-average a consistent set of named numeric scores."""
+
+    if not scores:
+        raise ValueError("at least one score row is required")
+    metric_names = tuple(scores[0])
+    if not metric_names:
+        raise ValueError("at least one metric is required")
+    expected = set(metric_names)
+    if any(set(result) != expected for result in scores):
+        raise ValueError("all score rows must contain the same metrics")
+    return {
+        "sample_count": len(scores),
+        **{
+            metric_name: _mean(float(result[metric_name]) for result in scores)
+            for metric_name in metric_names
+        },
+    }
+
+
+def aggregate_ragas_scores(
+    scores: Sequence[Mapping[str, float]],
+) -> dict[str, float | int]:
+    """Macro-average per-answer RAGAS scores."""
+
+    return aggregate_numeric_scores(scores)
+
+
+def summarize_latencies(
+    latencies_ms: Sequence[float],
+    *,
+    prefix: str = "latency",
+) -> dict[str, float | int]:
+    """Return count, mean, p50, and p95 for a latency sample."""
+
+    if not latencies_ms:
+        return {
+            f"{prefix}_count": 0,
+            f"{prefix}_mean_ms": 0.0,
+            f"{prefix}_p50_ms": 0.0,
+            f"{prefix}_p95_ms": 0.0,
+        }
+    return {
+        f"{prefix}_count": len(latencies_ms),
+        f"{prefix}_mean_ms": _mean(latencies_ms),
+        f"{prefix}_p50_ms": _percentile(latencies_ms, 0.50),
+        f"{prefix}_p95_ms": _percentile(latencies_ms, 0.95),
+    }

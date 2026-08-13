@@ -170,3 +170,41 @@ mode, `top_k`, vector weight, relevance threshold, or repetition count differ.
 - Embedding budget tokens sum the application's deterministic token counts for
   every indexed chunk, including overlap. They are a reproducible cost proxy,
   not provider-reported billed tokens.
+
+## Collect and judge generated answers
+
+Answer-quality evaluation is a two-stage offline workflow. Collection calls the
+context and chat endpoints for every gold question and records replayable
+samples with retrieved contexts, citations, token counts, and separate context
+and chat latencies. Judging can then be repeated without regenerating answers.
+
+Collect a small smoke sample from an indexed API:
+
+```powershell
+.venv\Scripts\python.exe scripts\run_ragas_evaluation.py `
+  --label recursive-smoke `
+  --base-url http://127.0.0.1:8002 `
+  --limit 3 --collect-only
+```
+
+Install the optional evaluation dependencies and judge the saved samples with
+Gemini-backed RAGAS metrics:
+
+```powershell
+.venv\Scripts\python.exe -m pip install -e ".[evaluation]"
+
+.venv\Scripts\python.exe scripts\run_ragas_evaluation.py `
+  --label recursive-smoke `
+  --limit 3 `
+  --samples tmp\benchmarks\recursive-smoke.rag-samples.results.jsonl
+```
+
+Remove `--limit` for all 48 questions. The default metrics are faithfulness,
+answer relevancy, answer correctness, context precision, and context recall.
+Use `--metrics` for a subset. Evaluator settings come from
+`RAGAS_EVALUATOR_MODEL` and `RAGAS_EMBEDDING_MODEL`; credentials are read from
+`GEMINI_API_KEY` or `GOOGLE_API_KEY` and are never written to artifacts.
+
+All summaries pin the dataset SHA-256 and the complete retrieval/context
+configuration. Keep raw per-question output under `tmp/benchmarks`; copy only a
+reviewed compact report into version control after a controlled final run.
