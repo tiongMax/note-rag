@@ -20,19 +20,48 @@ services:
       timeout: 5s
       retries: 10
 
-  app:
+  redis:
+    image: valkey/valkey:8.0
+    container_name: note-rag-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: ["valkey-server", "--save", "60", "1", "--loglevel", "warning"]
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  nginx:
+    image: nginx:alpine
+    container_name: note-rag-nginx
+    ports:
+      - "${APP_PORT:-8001}:80"
+    volumes:
+      - ./docker/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - api
+
+  api:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: note-rag-app
+    container_name: note-rag-api
+    command: ["python", "-m", "note_rag", "--mode", "api"]
     init: true
     restart: unless-stopped
     depends_on:
       postgres:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     environment:
       APP_ENVIRONMENT: ${APP_ENVIRONMENT:-production}
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-langchain}:${POSTGRES_PASSWORD:-langchain}@postgres:5432/${POSTGRES_DB:-langchain}
+      REDIS_URL: redis://redis:6379/1
+      BACKGROUND_WORKER_ENABLED: "false"
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       EMBEDDING_BACKEND: ${EMBEDDING_BACKEND:-gemini}
       BENCHMARK_EMBEDDING_DELAY_MS: ${BENCHMARK_EMBEDDING_DELAY_MS:-500}
@@ -54,8 +83,8 @@ services:
       JSON_LOGS: ${JSON_LOGS:-true}
       METRICS_ENABLED: ${METRICS_ENABLED:-true}
       FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-127.0.0.1}
-    ports:
-      - "${APP_PORT:-8001}:8001"
+    expose:
+      - "8001"
     volumes:
       - note_rag_uploads:/app/data/uploads
     tmpfs:
@@ -73,6 +102,37 @@ services:
       start_period: 15s
       retries: 3
 
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: note-rag-worker
+    command: ["python", "-m", "note_rag", "--mode", "worker"]
+    init: true
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      APP_ENVIRONMENT: ${APP_ENVIRONMENT:-production}
+      APP_GIT_COMMIT: ${APP_GIT_COMMIT:-}
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-langchain}:${POSTGRES_PASSWORD:-langchain}@postgres:5432/${POSTGRES_DB:-langchain}
+      REDIS_URL: redis://redis:6379/1
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      EMBEDDING_BACKEND: ${EMBEDDING_BACKEND:-gemini}
+      CHUNKING_STRATEGY: ${CHUNKING_STRATEGY:-recursive}
+      CHUNK_SIZE: ${CHUNK_SIZE:-200}
+      CHUNK_OVERLAP: ${CHUNK_OVERLAP:-20}
+      UPLOAD_STORAGE_PATH: /app/data/uploads
+      JSON_LOGS: ${JSON_LOGS:-true}
+      METRICS_ENABLED: ${METRICS_ENABLED:-true}
+      WORKER_MAX_ATTEMPTS: ${WORKER_MAX_ATTEMPTS:-3}
+    volumes:
+      - note_rag_uploads:/app/data/uploads
+    tmpfs:
+      - /tmp
   postgres-recursive:
     profiles: ["benchmark"]
     image: pgvector/pgvector:pg16
@@ -151,6 +211,8 @@ services:
 
 volumes:
   pgvector_data:
+  redis_data:
   note_rag_uploads:
   pgvector_recursive_data:
   note_rag_recursive_uploads:
+
