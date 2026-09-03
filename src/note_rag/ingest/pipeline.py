@@ -4,6 +4,7 @@ import hashlib
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
 from note_rag.chunking import Chunker, TokenChunker
 from note_rag.ingest.parsers import ParserRegistry
@@ -18,6 +19,9 @@ from note_rag.persistence import (
     IngestionJobRepository,
     IngestionJobStatus,
 )
+
+if TYPE_CHECKING:
+    from note_rag.queue import QueuePublisher
 
 
 @dataclass(frozen=True, slots=True)
@@ -39,11 +43,13 @@ class IngestionPipeline:
         *,
         parser_registry: ParserRegistry | None = None,
         chunker: Chunker | None = None,
+        queue_publisher: "QueuePublisher | None" = None,
     ) -> None:
         self.database = database
         self.storage = storage
         self.parser_registry = parser_registry or ParserRegistry()
         self.chunker = chunker or TokenChunker()
+        self.queue_publisher = queue_publisher
 
     def ingest(
         self,
@@ -127,7 +133,13 @@ class IngestionPipeline:
                     attempts=0,
                 )
             )
-            return self._result(document, job_id=job.id, duplicate=False)
+            result = self._result(document, job_id=job.id, duplicate=False)
+
+        # Publish to Redis Stream *after* the DB transaction is committed so
+        # the worker can always find the row when it picks up the message.
+        if self.queue_publisher is not None and result.job_id is not None:
+            self.queue_publisher.enqueue(result.job_id)
+        return result
 
     def process_job(
         self,

@@ -7,6 +7,7 @@ import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+import redis
 from fastapi import (
     FastAPI,
     File,
@@ -86,6 +87,11 @@ from note_rag.persistence import (
     Database,
     DocumentRepository,
     IngestionJobRepository,
+)
+from note_rag.queue import (
+    QueueConsumer,
+    QueuePublisher,
+    RedisStreamQueue,
 )
 from note_rag.retrieval import (
     PersistentRetrievalCache,
@@ -239,6 +245,9 @@ def create_app(
         if app_settings.chunking_strategy == "recursive"
         else TokenChunker
     )
+    redis_client = redis.Redis.from_url(app_settings.redis_url) # type: ignore[type-arg,var-annotated]
+    stream_queue = RedisStreamQueue(redis_client)
+    queue_publisher = QueuePublisher(stream_queue, app_settings.ingest_stream)
     pipeline = IngestionPipeline(
         resolved_database,
         resolved_storage,
@@ -248,15 +257,25 @@ def create_app(
             chunk_overlap=app_settings.chunk_overlap,
             token_counter=token_counter,
         ),
+        queue_publisher=queue_publisher,
+    )
+    
+    # We use worker_id to distinguish consumers in the Redis stream group
+    worker_id = uuid.uuid4().hex
+    queue_consumer = QueueConsumer(
+        stream_queue,
+        stream=app_settings.ingest_stream,
+        group=app_settings.ingest_group,
+        consumer=worker_id,
     )
     ingestion_worker = IngestionWorker(
         resolved_database,
         pipeline,
         indexing_service,
+        consumer=queue_consumer,
         max_attempts=app_settings.worker_max_attempts,
         retry_backoff_seconds=app_settings.worker_retry_backoff_seconds,
-        poll_interval_seconds=app_settings.worker_poll_interval_seconds,
-        lease_timeout_seconds=app_settings.worker_lease_timeout_seconds,
+        worker_id=worker_id,
     )
     stop_event = threading.Event()
     worker_thread: threading.Thread | None = None

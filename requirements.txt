@@ -1,3 +1,4 @@
 # Compatibility entry point for tools that still expect requirements.txt.
 # Project dependencies are maintained in pyproject.toml.
 -e .
+redis[hiredis]>=5.0

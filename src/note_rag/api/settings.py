@@ -87,6 +87,9 @@ class ApiSettings:
     worker_lease_timeout_seconds: float = 300.0
     gemini_api_key: str = ""
     api_auth_token: str = ""
+    redis_url: str = "redis://127.0.0.1:6379/1"
+    ingest_stream: str = "note_rag:ingest"
+    ingest_group: str = "note_rag:ingest_workers"
     allowed_origins: tuple[str, ...] = (
         "http://127.0.0.1:5174",
         "http://localhost:5174",
@@ -382,6 +385,9 @@ class ApiSettings:
                 or ""
             ),
             api_auth_token=os.getenv("API_AUTH_TOKEN", ""),
+            redis_url=os.getenv("REDIS_URL", "redis://127.0.0.1:6379/1"),
+            ingest_stream=os.getenv("INGEST_STREAM", "note_rag:ingest"),
+            ingest_group=os.getenv("INGEST_GROUP", "note_rag:ingest_workers"),
             allowed_origins=_env_csv(
                 "ALLOWED_ORIGINS",
                 (
