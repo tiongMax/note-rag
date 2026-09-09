@@ -7,9 +7,9 @@ from typing import Any, cast
 
 from sqlalchemy import func, select
 
-from note_rag.cache import PersistentCache, cache_key
+from note_rag.cache import cache_key
 from note_rag.embeddings import QueryEmbeddingProvider
-from note_rag.persistence import Database
+from note_rag.persistence import ChunkRecord, Database, Document
 from note_rag.retrieval.cache import PersistentRetrievalCache
 from note_rag.retrieval.models import (
     RetrievalHit,
@@ -70,17 +70,15 @@ class RetrievalService:
         corpus_version = 0
         cache_key = ""
         if self.cache is not None:
-            cached, cache_status, corpus_version, cache_key = (
-                self.cache.get_retrieval(
-                    query=query,
-                    mode=mode,
-                    top_k=top_k,
-                    vector_weight=vector_weight,
-                    filters=resolved_filters,
-                    model_name=self.embedding_provider.model_name,
-                    candidate_multiplier=self.candidate_multiplier,
-                    rrf_k=self.rrf_k,
-                )
+            cached, cache_status, corpus_version, cache_key = self.cache.get_retrieval(
+                query=query,
+                mode=mode,
+                top_k=top_k,
+                vector_weight=vector_weight,
+                filters=resolved_filters,
+                model_name=self.embedding_provider.model_name,
+                candidate_multiplier=self.candidate_multiplier,
+                rrf_k=self.rrf_k,
             )
             if cached is not None:
                 return cached
@@ -186,7 +184,9 @@ class RetrievalService:
                     func.max(ChunkRecord.updated_at),
                     func.count(Document.id.distinct()),
                     func.max(Document.updated_at),
-                ).select_from(ChunkRecord).join(Document)
+                )
+                .select_from(ChunkRecord)
+                .join(Document)
             ).one()
         return cache_key({"version": 1, "state": list(row)})
 

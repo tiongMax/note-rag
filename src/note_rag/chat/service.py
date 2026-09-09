@@ -138,9 +138,7 @@ class ChatService:
             data={
                 "conversation_id": str(result.conversation_id),
                 "message_id": str(result.message_id),
-                "citations": [
-                    citation.for_storage() for citation in result.citations
-                ],
+                "citations": [citation.for_storage() for citation in result.citations],
             },
         )
 
@@ -171,9 +169,7 @@ class ChatService:
             conversation = (
                 conversations.get(existing)
                 if existing is not None
-                else conversations.add(
-                    Conversation(title=self._title(question))
-                )
+                else conversations.add(Conversation(title=self._title(question)))
             )
             if conversation is None:
                 raise LookupError("conversation not found")
@@ -224,9 +220,7 @@ class ChatService:
     ) -> ChatResult:
         citations = self._extract_citations(answer, prepared.context)
         with self.database.session() as session:
-            conversation = ConversationRepository(session).get(
-                prepared.conversation_id
-            )
+            conversation = ConversationRepository(session).get(prepared.conversation_id)
             if conversation is None:
                 raise LookupError("conversation not found")
             message = ChatMessageRepository(session).add(
@@ -270,8 +264,7 @@ class ChatService:
             for citation in self._available_citations(context)
         }
         referenced = {
-            int(match.group(1))
-            for match in _CITATION_PATTERN.finditer(answer)
+            int(match.group(1)) for match in _CITATION_PATTERN.finditer(answer)
         }
         return [
             available[citation_id]

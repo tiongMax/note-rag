@@ -222,9 +222,7 @@ class IngestionJob(TimestampMixin, Base):
     error_message: Mapped[str | None] = mapped_column(Text)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    next_attempt_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True)
-    )
+    next_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     locked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     worker_id: Mapped[str | None] = mapped_column(String(64))
 
@@ -233,9 +231,7 @@ class IngestionJob(TimestampMixin, Base):
 
 class Conversation(TimestampMixin, Base):
     __tablename__ = "conversations"
-    __table_args__ = (
-        Index("ix_conversations_updated_at", "updated_at"),
-    )
+    __table_args__ = (Index("ix_conversations_updated_at", "updated_at"),)
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     title: Mapped[str] = mapped_column(String(255), nullable=False)

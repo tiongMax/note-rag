@@ -89,9 +89,7 @@ def test_persists_chat_and_valid_citations(database: Database) -> None:
     assert result.answer.startswith("Apples grow")
     assert [citation.citation_id for citation in result.citations] == [1]
     with database.session() as session:
-        conversation = ConversationRepository(session).get(
-            result.conversation_id
-        )
+        conversation = ConversationRepository(session).get(result.conversation_id)
         messages = ChatMessageRepository(session).list_for_conversation(
             result.conversation_id
         )
@@ -137,9 +135,7 @@ def test_streams_events_then_persists_answer(database: Database) -> None:
     conversation_id = uuid.UUID(events[0].data["conversation_id"])
     assert events[-1].data["citations"][0]["citation_id"] == 1
     with database.session() as session:
-        messages = ChatMessageRepository(session).list_for_conversation(
-            conversation_id
-        )
+        messages = ChatMessageRepository(session).list_for_conversation(conversation_id)
         assert messages[-1].content == "Apples grow in orchards [1]."
 
 

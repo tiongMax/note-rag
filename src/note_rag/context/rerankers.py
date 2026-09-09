@@ -33,9 +33,7 @@ class LexicalReranker:
                 scores.append(0.0)
                 continue
             overlap = len(query_terms & document_terms)
-            scores.append(
-                overlap / math.sqrt(len(query_terms) * len(document_terms))
-            )
+            scores.append(overlap / math.sqrt(len(query_terms) * len(document_terms)))
         return scores
 
     def _terms(self, text: str) -> set[str]:

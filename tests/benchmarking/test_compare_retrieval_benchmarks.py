@@ -9,11 +9,7 @@ import pytest
 
 
 def _load_script() -> ModuleType:
-    path = (
-        Path(__file__).parents[2]
-        / "scripts"
-        / "compare_retrieval_benchmarks.py"
-    )
+    path = Path(__file__).parents[2] / "scripts" / "compare_retrieval_benchmarks.py"
     spec = importlib.util.spec_from_file_location("benchmark_compare", path)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
@@ -58,9 +54,7 @@ def test_compares_controlled_runs() -> None:
     )
 
     recall = next(
-        row
-        for row in comparison["metrics"]
-        if row["metric"] == "recall_at_10"
+        row for row in comparison["metrics"] if row["metric"] == "recall_at_10"
     )
     assert recall["absolute_delta"] == pytest.approx(0.25)
     assert recall["relative_change_percent"] == pytest.approx(50)
@@ -80,9 +74,7 @@ def test_calculates_positive_resume_improvements() -> None:
 
     resume = comparison["resume_metrics"]
     assert resume["ndcg_at_10_relative_improvement_percent"] == pytest.approx(20)
-    assert resume["irrelevant_at_5_relative_reduction_percent"] == pytest.approx(
-        25
-    )
+    assert resume["irrelevant_at_5_relative_reduction_percent"] == pytest.approx(25)
 
 
 def test_paired_bootstrap_reports_intervals_for_resume_metrics() -> None:
@@ -103,12 +95,8 @@ def test_paired_bootstrap_reports_intervals_for_resume_metrics() -> None:
         seed=7,
     )
 
-    assert (
-        intervals["ndcg_at_10_relative_improvement_percent"]["lower_95"] > 0
-    )
-    assert (
-        intervals["irrelevant_at_5_relative_reduction_percent"]["lower_95"] > 0
-    )
+    assert intervals["ndcg_at_10_relative_improvement_percent"]["lower_95"] > 0
+    assert intervals["irrelevant_at_5_relative_reduction_percent"]["lower_95"] > 0
 
 
 def test_rejects_different_experimental_controls() -> None:

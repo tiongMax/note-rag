@@ -7,11 +7,7 @@ from typing import Any
 
 
 def _load_script() -> ModuleType:
-    path = (
-        Path(__file__).parents[2]
-        / "scripts"
-        / "run_retrieval_benchmark.py"
-    )
+    path = Path(__file__).parents[2] / "scripts" / "run_retrieval_benchmark.py"
     spec = importlib.util.spec_from_file_location("benchmark_runner", path)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)

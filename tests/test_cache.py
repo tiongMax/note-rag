@@ -6,12 +6,11 @@ from note_rag.cache import PersistentCache
 
 def test_cache_persists_across_instances(tmp_path: Path) -> None:
     path = tmp_path / "cache.sqlite3"
-    PersistentCache(path, ttl_seconds=60).set(
-        "query_embedding", "key", [1.0, 2.0]
-    )
-    assert PersistentCache(path, ttl_seconds=60).get(
-        "query_embedding", "key"
-    ) == [1.0, 2.0]
+    PersistentCache(path, ttl_seconds=60).set("query_embedding", "key", [1.0, 2.0])
+    assert PersistentCache(path, ttl_seconds=60).get("query_embedding", "key") == [
+        1.0,
+        2.0,
+    ]
 
 
 def test_cache_expires_entries(tmp_path: Path) -> None:

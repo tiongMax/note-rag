@@ -58,9 +58,7 @@ def test_cross_encoder_rejects_unbounded_logits() -> None:
         def predict(self, *args: object, **kwargs: object) -> list[float]:
             return [8.2]
 
-    reranker = CrossEncoderReranker(
-        model_factory=lambda *args, **kwargs: LogitModel()
-    )
+    reranker = CrossEncoderReranker(model_factory=lambda *args, **kwargs: LogitModel())
 
     with pytest.raises(ValueError, match="sigmoid"):
         reranker.score("query", ["document"])

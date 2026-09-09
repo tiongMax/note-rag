@@ -25,13 +25,10 @@ class RagasEvaluator:
             ragas_cache = importlib.import_module("ragas.cache")
             ragas_embeddings = importlib.import_module("ragas.embeddings")
             ragas_llms = importlib.import_module("ragas.llms")
-            ragas_metrics = importlib.import_module(
-                "ragas.metrics.collections"
-            )
+            ragas_metrics = importlib.import_module("ragas.metrics.collections")
         except ModuleNotFoundError as error:
             raise RuntimeError(
-                "RAGAS is not installed; run "
-                "'pip install -e .[evaluation]' first"
+                "RAGAS is not installed; run 'pip install -e .[evaluation]' first"
             ) from error
 
         cache_dir.mkdir(parents=True, exist_ok=True)
@@ -97,16 +94,12 @@ class RagasEvaluator:
         scores: dict[str, float | str | None] = {}
         for name, metric, required in self._metrics:
             try:
-                result = metric.score(
-                    **{field: inputs[field] for field in required}
-                )
+                result = metric.score(**{field: inputs[field] for field in required})
                 scores[name] = float(result.value)
                 reason = getattr(result, "reason", None)
                 if reason:
                     scores[f"{name}_reason"] = str(reason)
             except Exception as error:
                 scores[name] = None
-                scores[f"{name}_error"] = (
-                    f"{type(error).__name__}: {error}"
-                )
+                scores[f"{name}_error"] = f"{type(error).__name__}: {error}"
         return scores

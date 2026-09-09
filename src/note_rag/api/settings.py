@@ -78,9 +78,7 @@ class ApiSettings:
 
     def __post_init__(self) -> None:
         if self.chunking_strategy not in {"fixed", "recursive"}:
-            raise ValueError(
-                "CHUNKING_STRATEGY must be either 'fixed' or 'recursive'"
-            )
+            raise ValueError("CHUNKING_STRATEGY must be either 'fixed' or 'recursive'")
         if self.reranker_backend not in {"lexical", "cross_encoder"}:
             raise ValueError(
                 "RERANKER_BACKEND must be either 'lexical' or 'cross_encoder'"
@@ -115,9 +113,7 @@ class ApiSettings:
             if value <= 0:
                 raise ValueError(f"{name} must be greater than zero")
         if self.max_request_bytes < self.max_upload_bytes:
-            raise ValueError(
-                "MAX_REQUEST_BYTES must be at least MAX_UPLOAD_BYTES"
-            )
+            raise ValueError("MAX_REQUEST_BYTES must be at least MAX_UPLOAD_BYTES")
         if self.log_level.upper() not in {
             "CRITICAL",
             "ERROR",
@@ -131,13 +127,10 @@ class ApiSettings:
                 raise ValueError("GEMINI_API_KEY is required in production")
             if len(self.api_auth_token) < 24:
                 raise ValueError(
-                    "API_AUTH_TOKEN must contain at least 24 characters "
-                    "in production"
+                    "API_AUTH_TOKEN must contain at least 24 characters in production"
                 )
             if "*" in self.allowed_hosts:
-                raise ValueError(
-                    "ALLOWED_HOSTS cannot contain '*' in production"
-                )
+                raise ValueError("ALLOWED_HOSTS cannot contain '*' in production")
 
     @classmethod
     def from_env(cls) -> "ApiSettings":
@@ -147,16 +140,14 @@ class ApiSettings:
             chunking_strategy=os.getenv(
                 "CHUNKING_STRATEGY",
                 "fixed",
-            ).strip().lower(),
+            )
+            .strip()
+            .lower(),
             chunk_size=int(os.getenv("CHUNK_SIZE", "200")),
             chunk_overlap=int(os.getenv("CHUNK_OVERLAP", "20")),
             storage_path=Path(os.getenv("UPLOAD_STORAGE_PATH", "data/uploads")),
-            frontend_dist_path=Path(
-                os.getenv("FRONTEND_DIST_PATH", "frontend/dist")
-            ),
-            max_upload_bytes=int(
-                os.getenv("MAX_UPLOAD_BYTES", str(10 * 1024 * 1024))
-            ),
+            frontend_dist_path=Path(os.getenv("FRONTEND_DIST_PATH", "frontend/dist")),
+            max_upload_bytes=int(os.getenv("MAX_UPLOAD_BYTES", str(10 * 1024 * 1024))),
             embedding_model=os.getenv(
                 "EMBEDDING_MODEL",
                 "gemini-embedding-2",
@@ -175,7 +166,9 @@ class ApiSettings:
             embedding_backend=os.getenv(
                 "EMBEDDING_BACKEND",
                 "gemini",
-            ).strip().lower(),
+            )
+            .strip()
+            .lower(),
             benchmark_embedding_delay_ms=float(
                 os.getenv("BENCHMARK_EMBEDDING_DELAY_MS", "500")
             ),
@@ -195,7 +188,9 @@ class ApiSettings:
             reranker_backend=os.getenv(
                 "RERANKER_BACKEND",
                 "lexical",
-            ).strip().lower(),
+            )
+            .strip()
+            .lower(),
             rerank_weight=float(os.getenv("RERANK_WEIGHT", "0.7")),
             cross_encoder_model=os.getenv(
                 "CROSS_ENCODER_MODEL",
@@ -205,20 +200,12 @@ class ApiSettings:
                 "CROSS_ENCODER_DEVICE",
                 "",
             ).strip(),
-            cross_encoder_batch_size=int(
-                os.getenv("CROSS_ENCODER_BATCH_SIZE", "16")
-            ),
+            cross_encoder_batch_size=int(os.getenv("CROSS_ENCODER_BATCH_SIZE", "16")),
             chat_model=os.getenv("CHAT_MODEL", "gemini-3.5-flash"),
             chat_temperature=float(os.getenv("CHAT_TEMPERATURE", "0.1")),
-            chat_max_output_tokens=int(
-                os.getenv("CHAT_MAX_OUTPUT_TOKENS", "1024")
-            ),
-            chat_history_max_messages=int(
-                os.getenv("CHAT_HISTORY_MAX_MESSAGES", "20")
-            ),
-            chat_history_max_tokens=int(
-                os.getenv("CHAT_HISTORY_MAX_TOKENS", "2000")
-            ),
+            chat_max_output_tokens=int(os.getenv("CHAT_MAX_OUTPUT_TOKENS", "1024")),
+            chat_history_max_messages=int(os.getenv("CHAT_HISTORY_MAX_MESSAGES", "20")),
+            chat_history_max_tokens=int(os.getenv("CHAT_HISTORY_MAX_TOKENS", "2000")),
             background_worker_enabled=_env_bool(
                 "BACKGROUND_WORKER_ENABLED",
                 True,
@@ -234,9 +221,7 @@ class ApiSettings:
                 os.getenv("WORKER_LEASE_TIMEOUT_SECONDS", "300")
             ),
             gemini_api_key=(
-                os.getenv("GEMINI_API_KEY")
-                or os.getenv("GOOGLE_API_KEY")
-                or ""
+                os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY") or ""
             ),
             api_auth_token=os.getenv("API_AUTH_TOKEN", ""),
             allowed_origins=_env_csv(
@@ -253,16 +238,11 @@ class ApiSettings:
             max_request_bytes=int(
                 os.getenv("MAX_REQUEST_BYTES", str(12 * 1024 * 1024))
             ),
-            rate_limit_requests=int(
-                os.getenv("RATE_LIMIT_REQUESTS", "120")
-            ),
-            rate_limit_window_seconds=int(
-                os.getenv("RATE_LIMIT_WINDOW_SECONDS", "60")
-            ),
+            rate_limit_requests=int(os.getenv("RATE_LIMIT_REQUESTS", "120")),
+            rate_limit_window_seconds=int(os.getenv("RATE_LIMIT_WINDOW_SECONDS", "60")),
             log_level=os.getenv("LOG_LEVEL", "INFO").upper(),
             json_logs=_env_bool("JSON_LOGS", True),
             metrics_enabled=_env_bool("METRICS_ENABLED", True),
-            cache_enabled=_env_bool("CACHE_ENABLED", True),
             cache_path=Path(
                 os.getenv(
                     "CACHE_PATH",

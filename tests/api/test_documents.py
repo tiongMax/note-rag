@@ -100,9 +100,7 @@ def test_upload_queues_background_job(
             )
         },
     )
-    job = client.get(
-        f"/api/v1/ingestion-jobs/{upload.json()['job_id']}"
-    )
+    job = client.get(f"/api/v1/ingestion-jobs/{upload.json()['job_id']}")
 
     assert upload.status_code == 202
     assert upload.json()["status"] == "pending"
@@ -143,16 +141,12 @@ def test_lifespan_worker_completes_queued_upload(
             },
         )
         deadline = time.monotonic() + 2
-        job = client.get(
-            f"/api/v1/ingestion-jobs/{upload.json()['job_id']}"
-        )
+        job = client.get(f"/api/v1/ingestion-jobs/{upload.json()['job_id']}")
         while time.monotonic() < deadline:
             if job.json()["status"] == "completed":
                 break
             time.sleep(0.01)
-            job = client.get(
-                f"/api/v1/ingestion-jobs/{upload.json()['job_id']}"
-            )
+            job = client.get(f"/api/v1/ingestion-jobs/{upload.json()['job_id']}")
 
     assert upload.status_code == 202
     assert job.json()["status"] == "completed"
@@ -190,9 +184,7 @@ def test_upload_and_inspect_document(
     assert job.json()["status"] == "completed"
     assert job.json()["progress"] == 100
 
-    reindex = client.post(
-        f"/api/v1/documents/{result['document_id']}/index"
-    )
+    reindex = client.post(f"/api/v1/documents/{result['document_id']}/index")
     assert reindex.status_code == 200
     assert reindex.json()["status"] == "indexed"
 
@@ -206,14 +198,10 @@ def test_delete_document_removes_record_and_file(
         "/api/v1/documents",
         files={"file": ("remove.txt", b"temporary knowledge", "text/plain")},
     )
-    document = client.get(
-        f"/api/v1/documents/{upload.json()['document_id']}"
-    ).json()
+    document = client.get(f"/api/v1/documents/{upload.json()['document_id']}").json()
     stored_path = Path(document["storage_uri"].removeprefix("file:///"))
 
-    response = client.delete(
-        f"/api/v1/documents/{upload.json()['document_id']}"
-    )
+    response = client.delete(f"/api/v1/documents/{upload.json()['document_id']}")
 
     assert response.status_code == 204
     assert not stored_path.exists()

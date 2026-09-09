@@ -80,8 +80,7 @@ def install_http_middleware(
                     status_code=413,
                     code="request_too_large",
                     message=(
-                        f"Request exceeds the {settings.max_request_bytes}-byte "
-                        "limit."
+                        f"Request exceeds the {settings.max_request_bytes}-byte limit."
                     ),
                 )
             else:
@@ -166,9 +165,7 @@ def _set_security_headers(response: Response, request_id: str) -> None:
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "no-referrer"
-    response.headers["Permissions-Policy"] = (
-        "camera=(), microphone=(), geolocation=()"
-    )
+    response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
     response.headers["Content-Security-Policy"] = (
         "default-src 'self'; "
         "script-src 'self'; "

@@ -56,7 +56,7 @@ class LocalFileStorage:
                 path.parent.rmdir()
             except OSError:
                 pass
-              
+
     def read(self, uri: str) -> bytes:
         parsed = urlparse(uri)
         if parsed.scheme != "file":

@@ -25,9 +25,7 @@ def load_benchmark(path: Path) -> list[BenchmarkCase]:
                     f"{path}:{line_number}: invalid benchmark row: {error}"
                 ) from error
             if case.id in seen:
-                raise ValueError(
-                    f"{path}:{line_number}: duplicate case id {case.id!r}"
-                )
+                raise ValueError(f"{path}:{line_number}: duplicate case id {case.id!r}")
             seen.add(case.id)
             cases.append(case)
     if not cases:
@@ -54,8 +52,7 @@ def load_traces(path: Path) -> dict[str, EvaluationTrace]:
                 ) from error
             if trace.question_id in traces:
                 raise ValueError(
-                    f"{path}:{line_number}: duplicate trace for "
-                    f"{trace.question_id!r}"
+                    f"{path}:{line_number}: duplicate trace for {trace.question_id!r}"
                 )
             traces[trace.question_id] = trace
     return traces

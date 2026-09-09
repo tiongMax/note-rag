@@ -53,9 +53,7 @@ def test_live_conversation_message_round_trip() -> None:
     finally:
         if conversation_id is not None:
             with database.session() as session:
-                conversation = ConversationRepository(session).get(
-                    conversation_id
-                )
+                conversation = ConversationRepository(session).get(conversation_id)
                 if conversation is not None:
                     ConversationRepository(session).delete(conversation)
         database.dispose()

@@ -37,7 +37,6 @@ from note_rag.api.models import (
 )
 from note_rag.api.observability import MetricsRegistry, configure_logging
 from note_rag.api.settings import ApiSettings, api_settings
-from note_rag.cache import PersistentCache
 from note_rag.chat import (
     ChatOptions,
     ChatProvider,
@@ -105,19 +104,16 @@ def create_app(
     resolved_storage = storage or LocalFileStorage(app_settings.storage_path)
     parser_registry = ParserRegistry()
     token_counter = RegexTokenCounter()
-    resolved_embedding_provider = (
-        embedding_provider
-        or (
-            DeterministicEmbeddingProvider(
-                dimension=app_settings.embedding_dimension,
-                delay_ms=app_settings.benchmark_embedding_delay_ms,
-            )
-            if app_settings.embedding_backend == "deterministic"
-            else GeminiEmbeddingProvider(
-                app_settings.embedding_model,
-                api_key=app_settings.gemini_api_key,
-                expected_dimension=app_settings.embedding_dimension,
-            )
+    resolved_embedding_provider = embedding_provider or (
+        DeterministicEmbeddingProvider(
+            dimension=app_settings.embedding_dimension,
+            delay_ms=app_settings.benchmark_embedding_delay_ms,
+        )
+        if app_settings.embedding_backend == "deterministic"
+        else GeminiEmbeddingProvider(
+            app_settings.embedding_model,
+            api_key=app_settings.gemini_api_key,
+            expected_dimension=app_settings.embedding_dimension,
         )
     )
     retrieval_cache = PersistentRetrievalCache(
@@ -288,7 +284,7 @@ def create_app(
             include_in_schema=False,
         )
         async def prometheus_metrics() -> str:
-            return metrics.render(cache)
+            return metrics.render()
 
     @app.post("/api/v1/chunks", response_model=ChunkTextResponse, tags=["chunking"])
     async def chunk_text(request: ChunkTextRequest) -> ChunkTextResponse:
@@ -337,9 +333,7 @@ def create_app(
         if len(content) > app_settings.max_upload_bytes:
             raise HTTPException(
                 status_code=413,
-                detail=(
-                    f"file exceeds the {app_settings.max_upload_bytes}-byte limit"
-                ),
+                detail=(f"file exceeds the {app_settings.max_upload_bytes}-byte limit"),
             )
 
         result = await run_in_threadpool(
@@ -520,15 +514,10 @@ def create_app(
                 context_builder.build,
                 request.query,
                 mode=request.mode,
-                candidate_k=(
-                    request.candidate_k or app_settings.context_candidate_k
-                ),
-                max_chunks=(
-                    request.max_chunks or app_settings.context_max_chunks
-                ),
+                candidate_k=(request.candidate_k or app_settings.context_candidate_k),
+                max_chunks=(request.max_chunks or app_settings.context_max_chunks),
                 max_context_tokens=(
-                    request.max_context_tokens
-                    or app_settings.context_max_tokens
+                    request.max_context_tokens or app_settings.context_max_tokens
                 ),
                 vector_weight=request.vector_weight,
                 rerank=request.rerank,
@@ -660,8 +649,7 @@ def create_app(
                 created_at=conversation.created_at,
                 updated_at=conversation.updated_at,
                 messages=[
-                    ChatMessageResponse.model_validate(message)
-                    for message in messages
+                    ChatMessageResponse.model_validate(message) for message in messages
                 ],
             )
 

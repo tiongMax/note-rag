@@ -20,9 +20,7 @@ from note_rag.persistence import (
 def test_stores_and_inspects_documents_and_chunks(session: Session) -> None:
     documents = DocumentRepository(session)
     chunks = ChunkRepository(session)
-    document = documents.add(
-        Document(filename="lesson.md", media_type="text/markdown")
-    )
+    document = documents.add(Document(filename="lesson.md", media_type="text/markdown"))
     generated = TokenChunker(chunk_size=3, chunk_overlap=1).chunk(
         "zero one two three four",
         source_id="lesson.md",
@@ -70,9 +68,7 @@ def test_rejects_invalid_job_progress(session: Session) -> None:
 
 def test_document_delete_cascades_to_chunks_and_jobs(session: Session) -> None:
     documents = DocumentRepository(session)
-    document = documents.add(
-        Document(filename="lesson.md", media_type="text/markdown")
-    )
+    document = documents.add(Document(filename="lesson.md", media_type="text/markdown"))
     chunks = ChunkRepository(session)
     chunks.add_from_chunks(
         document,

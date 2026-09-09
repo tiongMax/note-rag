@@ -1,4 +1,4 @@
-"""Retrieval evaluation metrics grounded in source-document spans and reproducible framework-independent RAG evaluation."""
+"""Retrieval evaluation metrics and reproducible RAG evaluation."""
 
 from note_rag.evaluation.dataset import load_benchmark
 from note_rag.evaluation.metrics import (
@@ -6,16 +6,16 @@ from note_rag.evaluation.metrics import (
     RetrievedChunk,
     aggregate_query_metrics,
     evaluate_query,
+    evaluate_trace,
     passage_coverage,
-    evaluate_trace
 )
-from note_rag.evaluation.ranking import Bm25Index, weighted_rrf
 from note_rag.evaluation.models import (
     BenchmarkCase,
     EvaluationTrace,
     Evidence,
     RetrievedContext,
 )
+from note_rag.evaluation.ranking import Bm25Index, weighted_rrf
 
 __all__ = [
     "GoldPassage",

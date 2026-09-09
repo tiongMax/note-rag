@@ -109,11 +109,7 @@ class GeminiEmbeddingProvider:
         contents = [
             types.Content(
                 role="user",
-                parts=[
-                    types.Part.from_text(
-                        text=f"{instruction}\n{text}"
-                    )
-                ],
+                parts=[types.Part.from_text(text=f"{instruction}\n{text}")],
             )
             for text in texts
         ]
@@ -127,7 +123,4 @@ class GeminiEmbeddingProvider:
             )
         if not response.embeddings:
             raise RuntimeError("Gemini returned no embeddings")
-        return [
-            list(embedding.values or [])
-            for embedding in response.embeddings
-        ]
+        return [list(embedding.values or []) for embedding in response.embeddings]

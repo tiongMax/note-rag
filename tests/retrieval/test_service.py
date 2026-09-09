@@ -121,9 +121,7 @@ def test_keyword_mode_does_not_embed(database: Database) -> None:
     assert len(result.hits) == 1
 
 
-def test_caches_embedding_and_retrieval_results(
-    database: Database, tmp_path
-) -> None:
+def test_caches_embedding_and_retrieval_results(database: Database, tmp_path) -> None:
     class CountingProvider(QueryEmbeddingProvider):
         calls = 0
 

@@ -1,5 +1,6 @@
 from fastapi.testclient import TestClient
 from sqlalchemy import func, select
+from tests.retrieval.test_service import QueryEmbeddingProvider, add_chunk
 
 from note_rag.api.app import create_app
 from note_rag.api.observability import MetricsRegistry
@@ -15,7 +16,6 @@ from note_rag.retrieval import (
     SearchFilters,
     SearchMode,
 )
-from tests.retrieval.test_service import QueryEmbeddingProvider, add_chunk
 
 
 class CountingProvider(QueryEmbeddingProvider):

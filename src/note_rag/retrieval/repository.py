@@ -80,15 +80,11 @@ class RetrievalRepository:
         return self._python_keyword_search(query, limit=limit, filters=filters)
 
     def _base_rows(self, filters: SearchFilters) -> list[tuple[ChunkRecord, str, str]]:
-        statement = (
-            select(ChunkRecord, Document.filename, Document.media_type)
-            .join(Document, ChunkRecord.document_id == Document.id)
+        statement = select(ChunkRecord, Document.filename, Document.media_type).join(
+            Document, ChunkRecord.document_id == Document.id
         )
         statement = self._apply_filters(statement, filters)
-        rows = [
-            (row[0], row[1], row[2])
-            for row in self.session.execute(statement)
-        ]
+        rows = [(row[0], row[1], row[2]) for row in self.session.execute(statement)]
         if filters.source_metadata and not self._is_postgresql:
             rows = [
                 row

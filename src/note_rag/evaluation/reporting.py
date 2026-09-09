@@ -26,9 +26,7 @@ def _percentile(values: list[float], percentile: float) -> float:
     upper = math.ceil(index)
     if lower == upper:
         return ordered[lower]
-    return ordered[lower] + (ordered[upper] - ordered[lower]) * (
-        index - lower
-    )
+    return ordered[lower] + (ordered[upper] - ordered[lower]) * (index - lower)
 
 
 def aggregate(results: list[QuestionResult]) -> dict[str, Any]:
@@ -111,16 +109,13 @@ def _write_jsonl(path: Path, results: list[QuestionResult]) -> None:
 
 
 def _write_csv(path: Path, results: list[QuestionResult]) -> None:
-    metric_names = sorted(
-        {name for result in results for name in result.metrics}
-    )
+    metric_names = sorted({name for result in results for name in result.metrics})
     judge_names = sorted(
         {
             name
             for result in results
             for name, value in result.judge.items()
-            if not name.endswith(("_reason", "_error"))
-            and not isinstance(value, str)
+            if not name.endswith(("_reason", "_error")) and not isinstance(value, str)
         }
     )
     fields = [
@@ -143,9 +138,6 @@ def _write_csv(path: Path, results: list[QuestionResult]) -> None:
                 "answer": result.trace.answer,
                 "error": result.trace.error,
                 **result.metrics,
-                **{
-                    f"ragas.{name}": result.judge.get(name)
-                    for name in judge_names
-                },
+                **{f"ragas.{name}": result.judge.get(name) for name in judge_names},
             }
             writer.writerow(row)

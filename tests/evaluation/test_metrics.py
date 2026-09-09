@@ -7,6 +7,8 @@ from note_rag.evaluation import (
     evaluate_query,
     passage_coverage,
 )
+from note_rag.evaluation.metrics import evaluate_trace, token_f1
+from note_rag.evaluation.models import BenchmarkCase, EvaluationTrace, RetrievedContext
 
 
 def passage(start: int = 100, end: int = 200) -> GoldPassage:
@@ -72,13 +74,6 @@ def test_macro_aggregates_metrics_and_latency_percentiles() -> None:
     assert summary["latency_mean_ms"] == pytest.approx(20)
     assert summary["latency_p50_ms"] == pytest.approx(20)
     assert summary["latency_p95_ms"] == pytest.approx(29)
-
-from note_rag.evaluation.metrics import evaluate_trace, token_f1
-from note_rag.evaluation.models import (
-    BenchmarkCase,
-    EvaluationTrace,
-    RetrievedContext,
-)
 
 
 def _case() -> BenchmarkCase:

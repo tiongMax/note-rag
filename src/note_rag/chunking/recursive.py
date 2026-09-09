@@ -88,9 +88,7 @@ class RecursiveChunker:
             boundaries = set()
             for match in separator.finditer(text):
                 char_boundary = (
-                    match.start()
-                    if match.start() == match.end()
-                    else match.end()
+                    match.start() if match.start() == match.end() else match.end()
                 )
                 token_boundary = bisect.bisect_left(
                     token_starts,
@@ -120,9 +118,7 @@ class RecursiveChunker:
             ]
 
         boundaries = [
-            boundary
-            for boundary in boundary_levels[level]
-            if start < boundary < end
+            boundary for boundary in boundary_levels[level] if start < boundary < end
         ]
         if not boundaries:
             return cls._split_range(

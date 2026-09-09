@@ -34,18 +34,12 @@ class BenchmarkCase(BaseModel):
 
     @model_validator(mode="after")
     def validate_labels(self) -> "BenchmarkCase":
-        behavior = self.expected_behavior or (
-            "answer" if self.answerable else "refuse"
-        )
+        behavior = self.expected_behavior or ("answer" if self.answerable else "refuse")
         self.expected_behavior = behavior
         if self.answerable != (behavior == "answer"):
-            raise ValueError(
-                "expected_behavior must agree with the answerable label"
-            )
+            raise ValueError("expected_behavior must agree with the answerable label")
         if self.answerable and not self.reference_answer:
-            raise ValueError(
-                "answerable cases require a non-empty reference_answer"
-            )
+            raise ValueError("answerable cases require a non-empty reference_answer")
         if self.answerable and not self.evidence:
             raise ValueError("answerable cases require at least one evidence span")
         if not self.answerable and self.evidence:

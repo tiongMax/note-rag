@@ -8,15 +8,11 @@ from collections import Counter, defaultdict
 from datetime import UTC, datetime
 from typing import Any
 
-from note_rag.cache import PersistentCache
-
 
 class JsonFormatter(logging.Formatter):
     """Render one structured JSON object per log record."""
 
-    _standard_fields = frozenset(
-        logging.LogRecord("", 0, "", 0, "", (), None).__dict__
-    )
+    _standard_fields = frozenset(logging.LogRecord("", 0, "", 0, "", (), None).__dict__)
 
     def format(self, record: logging.LogRecord) -> str:
         payload: dict[str, Any] = {
@@ -48,9 +44,7 @@ def configure_logging(level: str, *, json_logs: bool) -> None:
         handler.setFormatter(JsonFormatter())
     else:
         handler.setFormatter(
-            logging.Formatter(
-                "%(asctime)s %(levelname)s %(name)s %(message)s"
-            )
+            logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s")
         )
     root.handlers.clear()
     root.addHandler(handler)
@@ -65,9 +59,7 @@ class MetricsRegistry:
         self._lock = threading.Lock()
         self._started_at = time.monotonic()
         self._requests: Counter[tuple[str, str, int]] = Counter()
-        self._duration_seconds: defaultdict[tuple[str, str], float] = defaultdict(
-            float
-        )
+        self._duration_seconds: defaultdict[tuple[str, str], float] = defaultdict(float)
         self._cache_requests: Counter[tuple[str, str]] = Counter()
         self._embedding_provider_calls: Counter[str] = Counter()
         self._cache_invalidations: Counter[str] = Counter()
@@ -147,8 +139,7 @@ class MetricsRegistry:
         for (method, route), duration in sorted(durations.items()):
             labels = _labels(method=method, route=route)
             lines.append(
-                "note_rag_http_request_duration_seconds_sum"
-                f"{{{labels}}} {duration:.6f}"
+                f"note_rag_http_request_duration_seconds_sum{{{labels}}} {duration:.6f}"
             )
         lines.extend(
             [
@@ -158,9 +149,7 @@ class MetricsRegistry:
         )
         for (cache, result), count in sorted(cache_requests.items()):
             labels = _labels(cache=cache, result=result)
-            lines.append(
-                f"note_rag_cache_requests_total{{{labels}}} {count}"
-            )
+            lines.append(f"note_rag_cache_requests_total{{{labels}}} {count}")
         lines.extend(
             [
                 (
@@ -200,10 +189,7 @@ class MetricsRegistry:
 
 
 def _labels(**values: str) -> str:
-    return ",".join(
-        f'{key}="{_escape_label(value)}"'
-        for key, value in values.items()
-    )
+    return ",".join(f'{key}="{_escape_label(value)}"' for key, value in values.items())
 
 
 def _escape_label(value: str) -> str:

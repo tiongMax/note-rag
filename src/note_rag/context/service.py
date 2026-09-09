@@ -88,9 +88,8 @@ class ContextBuilder:
             max_context_tokens=max_context_tokens,
         )
         context_tokens = self.token_counter.count(context)
-        truncated = (
-            len(chunks) < len(unique)
-            or any(chunk.truncated for chunk in chunks)
+        truncated = len(chunks) < len(unique) or any(
+            chunk.truncated for chunk in chunks
         )
         return ContextPackage(
             query=result.query,
@@ -118,8 +117,7 @@ class ContextBuilder:
     ) -> list[_ScoredHit]:
         if not enabled or self.reranker is None or not hits:
             return [
-                _ScoredHit(hit, None, hit.score, rank)
-                for rank, hit in enumerate(hits)
+                _ScoredHit(hit, None, hit.score, rank) for rank, hit in enumerate(hits)
             ]
 
         rerank_scores = self.reranker.score(
@@ -138,10 +136,7 @@ class ContextBuilder:
             _ScoredHit(
                 hit=hit,
                 rerank_score=rerank_score,
-                score=(
-                    weight * rerank_score
-                    + (1.0 - weight) * retrieval_score
-                ),
+                score=(weight * rerank_score + (1.0 - weight) * retrieval_score),
                 original_rank=rank,
             )
             for rank, (hit, retrieval_score, rerank_score) in enumerate(

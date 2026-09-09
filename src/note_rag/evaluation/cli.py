@@ -175,11 +175,7 @@ def main(argv: list[str] | None = None) -> int:
         from note_rag.evaluation.ragas_adapter import RagasEvaluator
 
         judge = RagasEvaluator(
-            api_key=(
-                os.getenv("GEMINI_API_KEY")
-                or os.getenv("GOOGLE_API_KEY")
-                or ""
-            ),
+            api_key=(os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY") or ""),
             judge_model=args.judge_model,
             embedding_model=args.judge_embedding_model,
             cache_dir=output_dir / ".ragas-cache",
@@ -213,13 +209,9 @@ def main(argv: list[str] | None = None) -> int:
         benchmark_sha256=_sha256(args.dataset),
         benchmark_cases=len(cases),
         corpus_manifest=(
-            str(args.corpus_manifest.resolve())
-            if args.corpus_manifest
-            else None
+            str(args.corpus_manifest.resolve()) if args.corpus_manifest else None
         ),
-        corpus_sha256=(
-            _sha256(args.corpus_manifest) if args.corpus_manifest else None
-        ),
+        corpus_sha256=(_sha256(args.corpus_manifest) if args.corpus_manifest else None),
         base_url=None if saved_traces is not None else args.base_url,
         git_commit=_git_commit(),
         created_at=datetime.now(UTC).isoformat(),
@@ -235,9 +227,7 @@ def main(argv: list[str] | None = None) -> int:
             "enabled": bool(args.ragas),
             "version": version("ragas") if args.ragas else None,
             "judge_model": args.judge_model if args.ragas else None,
-            "embedding_model": (
-                args.judge_embedding_model if args.ragas else None
-            ),
+            "embedding_model": (args.judge_embedding_model if args.ragas else None),
         },
     )
     report = write_reports(output_dir, snapshot, results)

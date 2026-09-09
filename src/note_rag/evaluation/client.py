@@ -74,8 +74,7 @@ class NoteRagHttpClient:
             ],
             answer=answer,
             resolved_citation_ids=[
-                int(citation["citation_id"])
-                for citation in chat.get("citations", [])
+                int(citation["citation_id"]) for citation in chat.get("citations", [])
             ],
             model_name=chat.get("model_name"),
             retrieval_ms=retrieval_ms,
@@ -91,10 +90,7 @@ class NoteRagHttpClient:
         input_tokens: int,
         output_tokens: int,
     ) -> float | None:
-        if (
-            self.input_cost_per_million is None
-            or self.output_cost_per_million is None
-        ):
+        if self.input_cost_per_million is None or self.output_cost_per_million is None:
             return None
         return (
             input_tokens * self.input_cost_per_million

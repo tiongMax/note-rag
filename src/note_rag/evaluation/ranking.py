@@ -75,9 +75,7 @@ class Bm25Index:
         for document in self._documents:
             score = 0.0
             length_ratio = (
-                document.length / self._average_length
-                if self._average_length
-                else 0.0
+                document.length / self._average_length if self._average_length else 0.0
             )
             for term in query_terms:
                 frequency = document.term_frequencies.get(term, 0)
@@ -85,12 +83,9 @@ class Bm25Index:
                     continue
                 document_frequency = self._document_frequency[term]
                 inverse_document_frequency = math.log(
-                    1 + (count - document_frequency + 0.5)
-                    / (document_frequency + 0.5)
+                    1 + (count - document_frequency + 0.5) / (document_frequency + 0.5)
                 )
-                denominator = frequency + self.k1 * (
-                    1 - self.b + self.b * length_ratio
-                )
+                denominator = frequency + self.k1 * (1 - self.b + self.b * length_ratio)
                 score += inverse_document_frequency * (
                     frequency * (self.k1 + 1) / denominator
                 )

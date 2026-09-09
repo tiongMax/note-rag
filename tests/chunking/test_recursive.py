@@ -22,12 +22,8 @@ def test_preserves_heading_sections_with_bounded_overlap() -> None:
 
     assert beta_chunks
     assert all(chunk.metadata.token_count <= 7 for chunk in chunks)
-    assert chunks[1].metadata.token_start == (
-        chunks[0].metadata.token_end - 2
-    )
-    assert all(
-        chunk.metadata.source_id == "structured.md" for chunk in chunks
-    )
+    assert chunks[1].metadata.token_start == (chunks[0].metadata.token_end - 2)
+    assert all(chunk.metadata.source_id == "structured.md" for chunk in chunks)
 
 
 def test_uses_token_fallback_for_oversized_unstructured_text() -> None:

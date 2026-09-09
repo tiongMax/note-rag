@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 import math
+import re
 import statistics
+from collections import Counter
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
+
+from note_rag.evaluation.models import BenchmarkCase, EvaluationTrace, RetrievedContext
 
 
 @dataclass(frozen=True, slots=True)
@@ -87,18 +91,17 @@ def _ndcg(
         return 0.0
 
     def dcg(values: Sequence[float]) -> float:
+        return sum(grade / math.log2(idx + 2) for idx, grade in enumerate(values))
 
-"""Deterministic retrieval, answer, citation, and refusal metrics."""
+    ideal_grades = (
+        ideal_grades if ideal_grades is not None else sorted(grades, reverse=True)
+    )
+    idcg = dcg(ideal_grades)
+    return dcg(grades) / idcg if idcg > 0 else 0.0
 
-import math
-import re
-from collections import Counter
 
-from note_rag.evaluation.models import (
-    BenchmarkCase,
-    EvaluationTrace,
-    RetrievedContext,
-)
+# --- Reproducible framework-independent RAG evaluation ---
+
 
 _TOKEN = re.compile(r"\w+", re.UNICODE)
 _CITATION = re.compile(r"\[(\d+)]")
@@ -213,9 +216,7 @@ def evaluate_query(
             )
             for passage in passages
         ]
-        metrics[f"recall_at_{cutoff}"] = _mean(
-            float(found) for found in found_passages
-        )
+        metrics[f"recall_at_{cutoff}"] = _mean(float(found) for found in found_passages)
         metrics[f"passage_coverage_at_{cutoff}"] = _mean(
             _union_coverage(top_chunks, passage) for passage in passages
         )
@@ -268,9 +269,6 @@ def aggregate_query_metrics(
     summary["latency_p95_ms"] = _percentile(latencies_ms, 0.95)
     return summary
 
-    ideal = dcg(ideal_grades)
-    return dcg(grades) / ideal if ideal else 0.0
-
 
 def retrieval_metrics(
     case: BenchmarkCase,
@@ -283,9 +281,7 @@ def retrieval_metrics(
     groups = {evidence.group for evidence in case.evidence}
     group_grades = {
         group: max(
-            evidence.relevance
-            for evidence in case.evidence
-            if evidence.group == group
+            evidence.relevance for evidence in case.evidence if evidence.group == group
         )
         for group in groups
     }
@@ -325,9 +321,7 @@ def evaluate_trace(
         if case.answerable
         else None
     )
-    metrics["token_f1"] = (
-        token_f1(reference, trace.answer) if case.answerable else None
-    )
+    metrics["token_f1"] = token_f1(reference, trace.answer) if case.answerable else None
     cited_ids = [int(item) for item in _CITATION.findall(trace.answer)]
     available_ids = {chunk.citation_id for chunk in trace.retrieved}
     valid_count = sum(citation_id in available_ids for citation_id in cited_ids)
