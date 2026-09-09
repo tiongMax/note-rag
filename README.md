@@ -32,6 +32,8 @@ responsibilities while deliberately simplifying its scale.
 - Request IDs, structured logging, rate limits, and security headers
 - Liveness, database readiness, and Prometheus-compatible metrics
 - Production Docker image, Compose stack, and CI verification
+- Human-labelled RAG benchmarks, deterministic retrieval metrics, optional
+  RAGAS judges, and JSON/CSV experiment reports
 
 ## Setup
 
@@ -91,6 +93,9 @@ docker compose up -d --build
 Production mode requires `GEMINI_API_KEY`, a strong `API_AUTH_TOKEN`, and
 explicit allowed hosts. See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for
 configuration, reverse-proxy, backup, monitoring, and rollback guidance.
+
+See [docs/EVALUATION.md](docs/EVALUATION.md) for benchmark labelling,
+experiment commands, and metric definitions.
 
 ## Upload a document
 
