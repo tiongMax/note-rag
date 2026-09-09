@@ -99,8 +99,8 @@ class CrossEncoderReranker:
             return self._model
         if self._model_factory is None:
             try:
-                from sentence_transformers import CrossEncoder
-                from torch.nn import Sigmoid
+                from sentence_transformers import CrossEncoder  # type: ignore
+                from torch.nn import Sigmoid  # type: ignore
             except ImportError as error:
                 raise RuntimeError(
                     "cross-encoder reranking requires the 'reranking' "

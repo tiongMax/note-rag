@@ -156,7 +156,7 @@ def chunk_relevance(
     return grade, groups
 
 
-def _ndcg(grades: list[int], ideal_grades: list[int]) -> float:
+def _graded_ndcg(grades: list[int], ideal_grades: list[int]) -> float:
     def dcg(values: list[int]) -> float:
         return sum(
             (2**grade - 1) / math.log2(rank + 1)
@@ -302,7 +302,7 @@ def retrieval_metrics(
         metrics[f"complete_evidence@{cutoff}"] = float(matched == groups)
         grades = [grade for grade, _ in selected]
         ideal = sorted(group_grades.values(), reverse=True)[:cutoff]
-        metrics[f"ndcg@{cutoff}"] = _ndcg(grades, ideal)
+        metrics[f"ndcg@{cutoff}"] = _graded_ndcg(grades, ideal)
     return metrics
 
 

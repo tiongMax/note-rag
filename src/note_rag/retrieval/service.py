@@ -1,15 +1,10 @@
 """Vector, keyword, and hybrid retrieval orchestration."""
 
 import math
-import uuid
 from dataclasses import dataclass
-from typing import Any, cast
 
-from sqlalchemy import func, select
-
-from note_rag.cache import cache_key
 from note_rag.embeddings import QueryEmbeddingProvider
-from note_rag.persistence import ChunkRecord, Database, Document
+from note_rag.persistence import Database
 from note_rag.retrieval.cache import PersistentRetrievalCache
 from note_rag.retrieval.models import (
     RetrievalHit,
@@ -173,76 +168,6 @@ class RetrievalService:
                 vector=vector,
             )
         return vector, cache_status
-
-    def _corpus_version(self) -> str:
-        """Fingerprint indexed corpus state so stale retrieval entries are bypassed."""
-
-        with self.database.session() as session:
-            row = session.execute(
-                select(
-                    func.count(ChunkRecord.id),
-                    func.max(ChunkRecord.updated_at),
-                    func.count(Document.id.distinct()),
-                    func.max(Document.updated_at),
-                )
-                .select_from(ChunkRecord)
-                .join(Document)
-            ).one()
-        return cache_key({"version": 1, "state": list(row)})
-
-    @staticmethod
-    def _serialize_result(result: RetrievalResult) -> dict[str, object]:
-        return {
-            "query": result.query,
-            "mode": result.mode.value,
-            "hits": [
-                {
-                    "chunk_id": str(hit.chunk_id),
-                    "document_id": str(hit.document_id),
-                    "filename": hit.filename,
-                    "media_type": hit.media_type,
-                    "position": hit.position,
-                    "text": hit.text,
-                    "source_metadata": hit.source_metadata,
-                    "score": float(hit.score),
-                    "vector_score": (
-                        float(hit.vector_score)
-                        if hit.vector_score is not None
-                        else None
-                    ),
-                    "keyword_score": (
-                        float(hit.keyword_score)
-                        if hit.keyword_score is not None
-                        else None
-                    ),
-                }
-                for hit in result.hits
-            ],
-        }
-
-    @staticmethod
-    def _deserialize_result(payload: dict[str, object]) -> RetrievalResult:
-        raw_hits = cast(list[dict[str, Any]], payload["hits"])
-        hits = [
-            RetrievalHit(
-                chunk_id=uuid.UUID(item["chunk_id"]),
-                document_id=uuid.UUID(item["document_id"]),
-                filename=item["filename"],
-                media_type=item["media_type"],
-                position=item["position"],
-                text=item["text"],
-                source_metadata=item["source_metadata"],
-                score=item["score"],
-                vector_score=item["vector_score"],
-                keyword_score=item["keyword_score"],
-            )
-            for item in raw_hits
-        ]
-        return RetrievalResult(
-            query=str(payload["query"]),
-            mode=SearchMode(str(payload["mode"])),
-            hits=hits,
-        )
 
     def _fuse(
         self,
