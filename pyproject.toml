@@ -27,9 +27,14 @@ dev = [
 reranking = [
     "sentence-transformers>=5,<6",
 ]
+evaluation = [
+    "diskcache>=5,<6",
+    "ragas==0.4.3",
+]
 
 [project.scripts]
 note-rag = "note_rag.api.run:main"
+note-rag-eval = "note_rag.evaluation.cli:main"
 
 [build-system]
 requires = ["hatchling"]
