@@ -37,6 +37,7 @@ from note_rag.api.models import (
 )
 from note_rag.api.observability import MetricsRegistry, configure_logging
 from note_rag.api.settings import ApiSettings, api_settings
+from note_rag.cache import PersistentCache
 from note_rag.chat import (
     ChatOptions,
     ChatProvider,
@@ -287,7 +288,7 @@ def create_app(
             include_in_schema=False,
         )
         async def prometheus_metrics() -> str:
-            return metrics.render()
+            return metrics.render(cache)
 
     @app.post("/api/v1/chunks", response_model=ChunkTextResponse, tags=["chunking"])
     async def chunk_text(request: ChunkTextRequest) -> ChunkTextResponse:

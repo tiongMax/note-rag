@@ -8,6 +8,8 @@ from collections import Counter, defaultdict
 from datetime import UTC, datetime
 from typing import Any
 
+from note_rag.cache import PersistentCache
+
 
 class JsonFormatter(logging.Formatter):
     """Render one structured JSON object per log record."""

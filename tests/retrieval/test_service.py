@@ -1,3 +1,4 @@
+from note_rag.cache import PersistentCache
 from note_rag.persistence import ChunkRecord, Database, Document, DocumentRepository
 from note_rag.retrieval import RetrievalService, SearchFilters, SearchMode
 
@@ -118,3 +119,68 @@ def test_keyword_mode_does_not_embed(database: Database) -> None:
     )
 
     assert len(result.hits) == 1
+
+
+def test_caches_embedding_and_retrieval_results(
+    database: Database, tmp_path
+) -> None:
+    class CountingProvider(QueryEmbeddingProvider):
+        calls = 0
+
+        def embed_query(self, query: str) -> list[float]:
+            self.calls += 1
+            return super().embed_query(query)
+
+    add_chunk(
+        database,
+        filename="cached.txt",
+        media_type="text/plain",
+        text="repeat this query",
+        embedding=[1.0, *([0.0] * 767)],
+        metadata={},
+    )
+    provider = CountingProvider()
+    cache = PersistentCache(tmp_path / "cache.sqlite3", ttl_seconds=60)
+    service = RetrievalService(database, provider, cache=cache)
+    cold = service.search("repeat", mode=SearchMode.HYBRID)
+    warm = service.search("repeat", mode=SearchMode.HYBRID)
+    assert cold == warm
+    assert provider.calls == 1
+    assert cache.stats()[("retrieval", "hit")] == 1
+
+
+def test_corpus_change_invalidates_retrieval_but_reuses_embedding(
+    database: Database, tmp_path
+) -> None:
+    class CountingProvider(QueryEmbeddingProvider):
+        calls = 0
+
+        def embed_query(self, query: str) -> list[float]:
+            self.calls += 1
+            return super().embed_query(query)
+
+    add_chunk(
+        database,
+        filename="first.txt",
+        media_type="text/plain",
+        text="shared",
+        embedding=[1.0, *([0.0] * 767)],
+        metadata={},
+    )
+    provider = CountingProvider()
+    service = RetrievalService(
+        database,
+        provider,
+        cache=PersistentCache(tmp_path / "cache.sqlite3", ttl_seconds=60),
+    )
+    assert len(service.search("shared").hits) == 1
+    add_chunk(
+        database,
+        filename="second.txt",
+        media_type="text/plain",
+        text="shared",
+        embedding=[1.0, *([0.0] * 767)],
+        metadata={},
+    )
+    assert len(service.search("shared").hits) == 2
+    assert provider.calls == 1

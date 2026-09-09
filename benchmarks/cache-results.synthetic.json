@@ -1,0 +1,26 @@
+{
+  "configuration": {
+    "queries": 100,
+    "unique_queries": 20,
+    "embedding_delay_ms": 50.0
+  },
+  "baseline": {
+    "mean_latency_ms": 52.669646008871496,
+    "p95_latency_ms": 53.19259990938008,
+    "embedding_calls": 100,
+    "warm_mean_latency_ms": 52.669646008871496,
+    "warm_p95_latency_ms": 53.19259990938008
+  },
+  "cached": {
+    "mean_latency_ms": 17.499863982666284,
+    "p95_latency_ms": 80.39629994891584,
+    "embedding_calls": 20,
+    "warm_mean_latency_ms": 1.7865737318061292,
+    "warm_p95_latency_ms": 6.774100009351969
+  },
+  "improvement": {
+    "warm_p95_latency_percent": 87.2649578684019,
+    "embedding_calls_percent": 80.0,
+    "cache_hit_rate_percent": 80.0
+  }
+}
