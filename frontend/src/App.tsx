@@ -6,15 +6,17 @@ import {
   MessageSquare,
   PanelLeftClose,
   Sparkles,
+  BrainCircuit,
 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { api, setApiToken } from "./api";
 import { ChatView } from "./ChatView";
 import { CoursesView } from "./CoursesView";
 import { DocumentsView } from "./DocumentsView";
+import { StudyView } from "./StudyView";
 import type { Conversation, Document } from "./types";
 
-type View = "documents" | "courses" | "chat";
+type View = "study" | "documents" | "courses" | "chat";
 
 export function errorText(error: unknown) {
   return error instanceof Error ? error.message : "Something went wrong";
@@ -34,7 +36,7 @@ export const fullDate = new Intl.DateTimeFormat(undefined, {
 });
 
 function App() {
-  const [view, setView] = useState<View>("documents");
+  const [view, setView] = useState<View>("study");
   const [documents, setDocuments] = useState<Document[]>([]);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [online, setOnline] = useState<boolean | null>(null);
@@ -101,6 +103,13 @@ function App() {
         </div>
         <nav className="primary-nav" aria-label="Main navigation">
           <button
+            className={view === "study" ? "active" : ""}
+            onClick={() => setView("study")}
+          >
+            <BrainCircuit size={18} />
+            Today
+          </button>
+          <button
             className={view === "courses" ? "active" : ""}
             onClick={() => setView("courses")}
           >
@@ -150,7 +159,9 @@ function App() {
         </button>
       )}
       <main className="main">
-        {view === "documents" ? (
+        {view === "study" ? (
+          <StudyView notify={setToast} />
+        ) : view === "documents" ? (
           <DocumentsView
             documents={documents}
             loading={loading}

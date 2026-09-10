@@ -4,6 +4,7 @@ import hashlib
 import json
 import threading
 import uuid
+from collections.abc import Callable
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
@@ -39,12 +40,21 @@ from note_rag.api.models import (
     IndexingResponse,
     IngestionJobResponse,
     IngestionResponse,
+    MemoryStateResponse,
+    ReviewAttemptResponse,
+    ReviewOverrideRequest,
+    ReviewQueueItemResponse,
+    ReviewQueueResponse,
     SearchRequest,
     SearchResponse,
     SourcePassageResponse,
     StoredChunkResponse,
+    StudyAnswerRequest,
     StudyItemResponse,
     StudyItemUpdateRequest,
+    StudyQuestionResponse,
+    StudySessionCreateRequest,
+    StudySessionResponse,
     TopicCreateRequest,
     TopicMergeRequest,
     TopicResponse,
@@ -102,8 +112,16 @@ from note_rag.persistence import (
     GenerationJobStatus,
     GenerationKind,
     IngestionJobRepository,
+    MemoryState,
+    MemoryStateRepository,
+    ReviewAttempt,
+    ReviewAttemptRepository,
     StudyItem,
     StudyItemRepository,
+    StudySession,
+    StudySessionMode,
+    StudySessionRepository,
+    StudySessionStatus,
     Topic,
     TopicRepository,
     TopicState,
@@ -113,6 +131,7 @@ from note_rag.retrieval import (
     RetrievalService,
     SearchFilters,
 )
+from note_rag.study import ForgettingCurveScheduler, SchedulerConfig, grade_answer
 
 
 def create_app(
@@ -123,6 +142,7 @@ def create_app(
     embedding_provider: QueryEmbeddingProvider | None = None,
     reranker: Reranker | None = None,
     chat_provider: ChatProvider | None = None,
+    clock: Callable[[], datetime] | None = None,
 ) -> FastAPI:
     """Build an application without starting network services."""
 
@@ -133,6 +153,7 @@ def create_app(
     metrics = MetricsRegistry()
     owns_database = database is None
     resolved_database = database or Database()
+    now = clock or (lambda: datetime.now(UTC))
     resolved_storage = storage or LocalFileStorage(app_settings.storage_path)
     parser_registry = ParserRegistry()
     token_counter = RegexTokenCounter()
@@ -878,6 +899,394 @@ def create_app(
             repository.delete(source)
             session.flush()
             return topic_response(target)
+
+    scheduler = ForgettingCurveScheduler(
+        SchedulerConfig(
+            recall_threshold=app_settings.scheduler_recall_threshold,
+            minimum_interval_days=(
+                app_settings.scheduler_min_interval_minutes / (24 * 60)
+            ),
+            maximum_interval_days=float(app_settings.scheduler_max_interval_days),
+        )
+    )
+
+    def aware(value: datetime) -> datetime:
+        return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
+
+    def question_response(item: StudyItem, reason: str) -> StudyQuestionResponse:
+        return StudyQuestionResponse(
+            id=item.id,
+            topic_id=item.topic_id,
+            item_type=item.item_type,
+            prompt=item.prompt,
+            options=[str(option["text"]) for option in item.options],
+            difficulty=item.difficulty,
+            reason=reason,
+        )
+
+    def memory_response(
+        state: MemoryState, *, at: datetime | None = None
+    ) -> MemoryStateResponse:
+        return MemoryStateResponse(
+            study_item_id=state.study_item_id,
+            half_life_days=state.half_life_days,
+            difficulty=state.difficulty,
+            last_review_at=state.last_review_at,
+            next_review_at=state.next_review_at,
+            predicted_recall=scheduler.predicted_recall(state, at or now()),
+            successful_reviews=state.successful_reviews,
+            failed_reviews=state.failed_reviews,
+            scheduler_version=state.scheduler_version,
+        )
+
+    def session_response(study_session: StudySession) -> StudySessionResponse:
+        return StudySessionResponse(
+            id=study_session.id,
+            course_id=study_session.course_id,
+            topic_id=study_session.topic_id,
+            mode=study_session.mode,
+            status=study_session.status,
+            items=[
+                question_response(link.study_item, link.reason)
+                for link in study_session.items
+            ],
+            answered_item_ids=[
+                attempt.study_item_id for attempt in study_session.attempts
+            ],
+            completed_at=study_session.completed_at,
+            created_at=study_session.created_at,
+        )
+
+    def queue_entries(
+        session, course_id: uuid.UUID, at: datetime
+    ) -> list[tuple[StudyItem, str, datetime | None, float | None]]:
+        items = StudyItemRepository(session).list_approved_for_course(course_id)
+        topic_evidence: dict[uuid.UUID, tuple[int, int]] = {}
+        for candidate in items:
+            candidate_state = MemoryStateRepository(session).get(candidate.id)
+            if candidate_state is None:
+                continue
+            successes, failures = topic_evidence.get(candidate.topic_id, (0, 0))
+            topic_evidence[candidate.topic_id] = (
+                successes + candidate_state.successful_reviews,
+                failures + candidate_state.failed_reviews,
+            )
+        weak_topic_ids = {
+            topic_id
+            for topic_id, (successes, failures) in topic_evidence.items()
+            if failures > successes
+        }
+        ranked: list[
+            tuple[
+                tuple[float, float, str], StudyItem, str, datetime | None, float | None
+            ]
+        ] = []
+        for item in items:
+            state = MemoryStateRepository(session).get(item.id)
+            if state is None:
+                category = 3.0
+                reason = "New approved item"
+                due_at = None
+                recall = None
+                secondary = -float(item.difficulty)
+            else:
+                due_at = state.next_review_at
+                recall = scheduler.predicted_recall(state, at)
+                overdue_seconds = (aware(at) - aware(due_at)).total_seconds()
+                if overdue_seconds >= 0:
+                    category = 0.0
+                    reason = f"Overdue; predicted recall {recall:.0%}"
+                    secondary = -overdue_seconds
+                elif item.topic_id in weak_topic_ids:
+                    category = 2.0
+                    reason = f"Weak topic; predicted recall {recall:.0%}"
+                    secondary = -float(item.difficulty)
+                else:
+                    category = 1.0
+                    reason = f"Predicted recall {recall:.0%}"
+                    secondary = recall
+            ranked.append(
+                ((category, secondary, str(item.id)), item, reason, due_at, recall)
+            )
+        ranked.sort(key=lambda entry: entry[0])
+        return [entry[1:] for entry in ranked]
+
+    @app.get(
+        "/api/v1/study/queue",
+        response_model=ReviewQueueResponse,
+        tags=["study"],
+    )
+    def get_review_queue(course_id: uuid.UUID, limit: int = 20) -> ReviewQueueResponse:
+        requested_at = now()
+        with resolved_database.session() as session:
+            if CourseRepository(session).get(course_id) is None:
+                raise HTTPException(status_code=404, detail="course not found")
+            entries = queue_entries(session, course_id, requested_at)[
+                : max(1, min(limit, 100))
+            ]
+            return ReviewQueueResponse(
+                course_id=course_id,
+                generated_at=requested_at,
+                estimated_minutes=max(1, round(len(entries) * 1.5)) if entries else 0,
+                items=[
+                    ReviewQueueItemResponse(
+                        **question_response(item, reason).model_dump(),
+                        due_at=due_at,
+                        predicted_recall=recall,
+                    )
+                    for item, reason, due_at, recall in entries
+                ],
+            )
+
+    @app.post(
+        "/api/v1/study/sessions",
+        response_model=StudySessionResponse,
+        status_code=201,
+        tags=["study"],
+    )
+    def create_study_session(
+        request: StudySessionCreateRequest,
+    ) -> StudySessionResponse:
+        with resolved_database.session() as session:
+            if CourseRepository(session).get(request.course_id) is None:
+                raise HTTPException(status_code=404, detail="course not found")
+            repository = StudyItemRepository(session)
+            selected: list[tuple[StudyItem, str]] = []
+            if request.item_ids:
+                for item_id in dict.fromkeys(request.item_ids):
+                    item = repository.get(item_id)
+                    if (
+                        item is None
+                        or item.topic.course_id != request.course_id
+                        or item.approval_status is not ApprovalStatus.APPROVED
+                    ):
+                        raise HTTPException(
+                            status_code=422,
+                            detail=(
+                                f"study item is not approved for this course: {item_id}"
+                            ),
+                        )
+                    selected.append((item, "Selected for focused practice"))
+            elif request.topic_id is not None:
+                topic = TopicRepository(session).get(request.topic_id)
+                if topic is None or topic.course_id != request.course_id:
+                    raise HTTPException(status_code=404, detail="topic not found")
+                selected = [
+                    (item, "Approved item from selected topic")
+                    for item in repository.list_for_topic(request.topic_id)
+                    if item.approval_status is ApprovalStatus.APPROVED
+                ]
+            elif request.mode is StudySessionMode.DAILY_REVIEW:
+                selected = [
+                    (item, reason)
+                    for item, reason, _due_at, _recall in queue_entries(
+                        session, request.course_id, now()
+                    )
+                ]
+            else:
+                selected = [
+                    (item, "Approved course item")
+                    for item in repository.list_approved_for_course(request.course_id)
+                ]
+            selected = selected[: request.limit]
+            if not selected:
+                raise HTTPException(
+                    status_code=409, detail="no approved study items are available"
+                )
+            mode = (
+                StudySessionMode.SELECTED
+                if request.item_ids
+                else StudySessionMode.TOPIC
+                if request.topic_id is not None
+                else request.mode
+            )
+            study_session = StudySessionRepository(session).add(
+                StudySession(
+                    course_id=request.course_id,
+                    topic_id=request.topic_id,
+                    mode=mode,
+                ),
+                selected,
+            )
+            return session_response(study_session)
+
+    @app.get(
+        "/api/v1/study/sessions/{session_id}",
+        response_model=StudySessionResponse,
+        tags=["study"],
+    )
+    def get_study_session(session_id: uuid.UUID) -> StudySessionResponse:
+        with resolved_database.session() as session:
+            study_session = StudySessionRepository(session).get(session_id)
+            if study_session is None:
+                raise HTTPException(status_code=404, detail="study session not found")
+            return session_response(study_session)
+
+    def attempt_response(
+        attempt: ReviewAttempt, state: MemoryState
+    ) -> ReviewAttemptResponse:
+        return ReviewAttemptResponse(
+            id=attempt.id,
+            session_id=attempt.session_id,
+            study_item_id=attempt.study_item_id,
+            submitted_answer=attempt.submitted_answer,
+            expected_answer=attempt.expected_answer,
+            correct=attempt.correct,
+            score=attempt.score,
+            rating=attempt.rating,
+            confidence=attempt.confidence,
+            response_time_ms=attempt.response_time_ms,
+            hint_used=attempt.hint_used,
+            grading_details=attempt.grading_details,
+            sources=[
+                SourcePassageResponse(
+                    chunk_id=source.chunk.id,
+                    document_id=source.chunk.document_id,
+                    filename=source.chunk.document.filename,
+                    position=source.chunk.position,
+                    text=source.chunk.text,
+                )
+                for source in attempt.study_item.sources
+            ],
+            reviewed_at=attempt.reviewed_at,
+            overridden_correct=attempt.overridden_correct,
+            overridden_score=attempt.overridden_score,
+            override_reason=attempt.override_reason,
+            memory=memory_response(state),
+        )
+
+    @app.post(
+        "/api/v1/study/sessions/{session_id}/answers",
+        response_model=ReviewAttemptResponse,
+        status_code=201,
+        tags=["study"],
+    )
+    def submit_study_answer(
+        session_id: uuid.UUID, request: StudyAnswerRequest
+    ) -> ReviewAttemptResponse:
+        reviewed_at = now()
+        with resolved_database.session() as session:
+            sessions = StudySessionRepository(session)
+            study_session = sessions.get(session_id)
+            if study_session is None:
+                raise HTTPException(status_code=404, detail="study session not found")
+            attempts = ReviewAttemptRepository(session)
+            existing = attempts.get_by_key(session_id, request.idempotency_key)
+            if existing is not None:
+                state = MemoryStateRepository(session).get(existing.study_item_id)
+                assert state is not None
+                return attempt_response(existing, state)
+            if study_session.status is not StudySessionStatus.ACTIVE:
+                raise HTTPException(status_code=409, detail="study session is complete")
+            session_item_ids = {link.study_item_id for link in study_session.items}
+            if request.item_id not in session_item_ids:
+                raise HTTPException(
+                    status_code=422, detail="item is not in this session"
+                )
+            if any(
+                attempt.study_item_id == request.item_id
+                for attempt in study_session.attempts
+            ):
+                raise HTTPException(
+                    status_code=409, detail="this item already has an answer"
+                )
+            item = StudyItemRepository(session).get(request.item_id)
+            assert item is not None
+            grade = grade_answer(item, request.submitted_answer)
+            attempt = attempts.add(
+                ReviewAttempt(
+                    session_id=session_id,
+                    study_item_id=item.id,
+                    idempotency_key=request.idempotency_key,
+                    submitted_answer=request.submitted_answer,
+                    expected_answer=item.answer,
+                    correct=grade.correct,
+                    score=grade.score,
+                    rating=request.rating,
+                    confidence=request.confidence,
+                    response_time_ms=request.response_time_ms,
+                    hint_used=request.hint_used,
+                    grading_details=grade.as_dict(),
+                    reviewed_at=reviewed_at,
+                )
+            )
+            memories = MemoryStateRepository(session)
+            state = scheduler.update(item, attempt, memories.get(item.id))
+            memories.save(state)
+            return attempt_response(attempt, state)
+
+    @app.post(
+        "/api/v1/study/sessions/{session_id}/complete",
+        response_model=StudySessionResponse,
+        tags=["study"],
+    )
+    def complete_study_session(session_id: uuid.UUID) -> StudySessionResponse:
+        with resolved_database.session() as session:
+            sessions = StudySessionRepository(session)
+            study_session = sessions.get(session_id)
+            if study_session is None:
+                raise HTTPException(status_code=404, detail="study session not found")
+            if len(study_session.attempts) < len(study_session.items):
+                raise HTTPException(
+                    status_code=409, detail="answer every item before completing"
+                )
+            if study_session.status is StudySessionStatus.ACTIVE:
+                sessions.complete(study_session, now())
+            return session_response(study_session)
+
+    @app.get(
+        "/api/v1/study-items/{item_id}/memory",
+        response_model=MemoryStateResponse,
+        tags=["study"],
+    )
+    def get_item_memory(item_id: uuid.UUID) -> MemoryStateResponse:
+        with resolved_database.session() as session:
+            if StudyItemRepository(session).get(item_id) is None:
+                raise HTTPException(status_code=404, detail="study item not found")
+            state = MemoryStateRepository(session).get(item_id)
+            if state is None:
+                raise HTTPException(
+                    status_code=404, detail="item has not been reviewed"
+                )
+            return memory_response(state)
+
+    @app.post(
+        "/api/v1/review-attempts/{attempt_id}/override",
+        response_model=ReviewAttemptResponse,
+        tags=["study"],
+    )
+    def override_review_attempt(
+        attempt_id: uuid.UUID, request: ReviewOverrideRequest
+    ) -> ReviewAttemptResponse:
+        with resolved_database.session() as session:
+            attempts = ReviewAttemptRepository(session)
+            attempt = attempts.get(attempt_id)
+            if attempt is None:
+                raise HTTPException(status_code=404, detail="review attempt not found")
+            attempt.overridden_correct = request.correct
+            attempt.overridden_score = request.score
+            attempt.override_reason = request.reason.strip()
+            attempt.overridden_at = now()
+            rebuilt = scheduler.rebuild(
+                attempt.study_item, attempts.list_for_item(attempt.study_item_id)
+            )
+            assert rebuilt is not None
+            memories = MemoryStateRepository(session)
+            state = memories.get(attempt.study_item_id)
+            assert state is not None
+            for field in (
+                "half_life_days",
+                "difficulty",
+                "last_review_at",
+                "next_review_at",
+                "predicted_recall",
+                "successful_reviews",
+                "failed_reviews",
+                "scheduler_version",
+            ):
+                setattr(state, field, getattr(rebuilt, field))
+            session.flush()
+            return attempt_response(attempt, state)
 
     @app.post(
         "/api/v1/documents",

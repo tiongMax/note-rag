@@ -7,6 +7,10 @@ import type {
   IngestionJob,
   GenerationJob,
   StudyItem,
+  ReviewAttempt,
+  ReviewQueue,
+  ReviewRating,
+  StudySession,
   SourcePassage,
   Topic,
   StreamDone,
@@ -151,6 +155,12 @@ export const api = {
   archiveStudyItem: (itemId: string) => request<void>(`/study-items/${itemId}`, { method: "DELETE" }),
   regenerateStudyItem: (itemId: string) => request<GenerationJob>(`/study-items/${itemId}/regenerate`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" }),
   mergeTopic: (courseId: string, topicId: string, targetTopicId: string) => request<Topic>(`/courses/${courseId}/topics/${topicId}/merge`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ target_topic_id: targetTopicId }) }),
+  reviewQueue: (courseId: string, limit = 20) => request<ReviewQueue>(`/study/queue?course_id=${encodeURIComponent(courseId)}&limit=${limit}`),
+  createStudySession: (input: { course_id: string; topic_id?: string; item_ids?: string[]; mode?: StudySession["mode"]; limit?: number }) => request<StudySession>("/study/sessions", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) }),
+  studySession: (sessionId: string) => request<StudySession>(`/study/sessions/${sessionId}`),
+  submitStudyAnswer: (sessionId: string, input: { item_id: string; submitted_answer: string; rating: ReviewRating; confidence: number; response_time_ms: number; hint_used: boolean; idempotency_key: string }) => request<ReviewAttempt>(`/study/sessions/${sessionId}/answers`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) }),
+  completeStudySession: (sessionId: string) => request<StudySession>(`/study/sessions/${sessionId}/complete`, { method: "POST" }),
+  overrideReview: (attemptId: string, input: { correct: boolean; score: number; reason: string }) => request<ReviewAttempt>(`/review-attempts/${attemptId}/override`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) }),
 };
 
 interface ChatOptions {

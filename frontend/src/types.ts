@@ -148,6 +148,81 @@ export interface StudyItem {
   updated_at: string;
 }
 
+export type ReviewRating = "again" | "hard" | "good" | "easy";
+
+export interface StudyQuestion {
+  id: string;
+  topic_id: string;
+  item_type: StudyItem["item_type"];
+  prompt: string;
+  options: string[];
+  difficulty: number;
+  reason: string;
+}
+
+export interface ReviewQueueItem extends StudyQuestion {
+  due_at: string | null;
+  predicted_recall: number | null;
+}
+
+export interface ReviewQueue {
+  course_id: string;
+  generated_at: string;
+  estimated_minutes: number;
+  items: ReviewQueueItem[];
+}
+
+export interface StudySession {
+  id: string;
+  course_id: string;
+  topic_id: string | null;
+  mode: "daily_review" | "course" | "topic" | "selected";
+  status: "active" | "completed";
+  items: StudyQuestion[];
+  answered_item_ids: string[];
+  completed_at: string | null;
+  created_at: string;
+}
+
+export interface MemoryState {
+  study_item_id: string;
+  half_life_days: number;
+  difficulty: number;
+  last_review_at: string;
+  next_review_at: string;
+  predicted_recall: number;
+  successful_reviews: number;
+  failed_reviews: number;
+  scheduler_version: string;
+}
+
+export interface ReviewAttempt {
+  id: string;
+  session_id: string;
+  study_item_id: string;
+  submitted_answer: string;
+  expected_answer: string;
+  correct: boolean;
+  score: number;
+  rating: ReviewRating;
+  confidence: number;
+  response_time_ms: number;
+  hint_used: boolean;
+  grading_details: {
+    correct_concepts: string[];
+    missing_concepts: string[];
+    mistaken_concepts: string[];
+    rationale: string;
+    supporting_chunk_ids: string[];
+  };
+  sources: SourcePassage[];
+  reviewed_at: string;
+  overridden_correct: boolean | null;
+  overridden_score: number | null;
+  override_reason: string | null;
+  memory: MemoryState;
+}
+
 export interface StreamDone {
   conversation_id: string;
   message_id: string;

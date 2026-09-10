@@ -24,8 +24,13 @@ from note_rag.persistence.models import (
     IngestionJob,
     IngestionJobStatus,
     LearningObjective,
+    MemoryState,
+    ReviewAttempt,
     StudyItem,
     StudyItemSource,
+    StudySession,
+    StudySessionItem,
+    StudySessionStatus,
     Topic,
     TopicSource,
     TopicState,
@@ -133,6 +138,94 @@ class StudyItemRepository:
         self.session.add(objective)
         self.session.flush()
         return objective
+
+    def list_approved_for_course(self, course_id: uuid.UUID) -> list[StudyItem]:
+        return list(
+            self.session.scalars(
+                select(StudyItem)
+                .join(Topic)
+                .where(
+                    Topic.course_id == course_id,
+                    StudyItem.approval_status == ApprovalStatus.APPROVED,
+                )
+                .order_by(Topic.position, StudyItem.created_at, StudyItem.id)
+            )
+        )
+
+
+class StudySessionRepository:
+    def __init__(self, session: Session) -> None:
+        self.session = session
+
+    def add(
+        self, study_session: StudySession, items: list[tuple[StudyItem, str]]
+    ) -> StudySession:
+        self.session.add(study_session)
+        self.session.flush()
+        for position, (item, reason) in enumerate(items):
+            self.session.add(
+                StudySessionItem(
+                    session_id=study_session.id,
+                    study_item_id=item.id,
+                    position=position,
+                    reason=reason,
+                )
+            )
+        self.session.flush()
+        return study_session
+
+    def get(self, session_id: uuid.UUID) -> StudySession | None:
+        return self.session.get(StudySession, session_id)
+
+    def complete(self, study_session: StudySession, at: datetime) -> None:
+        study_session.status = StudySessionStatus.COMPLETED
+        study_session.completed_at = at
+        self.session.flush()
+
+
+class ReviewAttemptRepository:
+    def __init__(self, session: Session) -> None:
+        self.session = session
+
+    def get(self, attempt_id: uuid.UUID) -> ReviewAttempt | None:
+        return self.session.get(ReviewAttempt, attempt_id)
+
+    def get_by_key(
+        self, session_id: uuid.UUID, idempotency_key: str
+    ) -> ReviewAttempt | None:
+        return self.session.scalar(
+            select(ReviewAttempt).where(
+                ReviewAttempt.session_id == session_id,
+                ReviewAttempt.idempotency_key == idempotency_key,
+            )
+        )
+
+    def add(self, attempt: ReviewAttempt) -> ReviewAttempt:
+        self.session.add(attempt)
+        self.session.flush()
+        return attempt
+
+    def list_for_item(self, item_id: uuid.UUID) -> list[ReviewAttempt]:
+        return list(
+            self.session.scalars(
+                select(ReviewAttempt)
+                .where(ReviewAttempt.study_item_id == item_id)
+                .order_by(ReviewAttempt.reviewed_at, ReviewAttempt.id)
+            )
+        )
+
+
+class MemoryStateRepository:
+    def __init__(self, session: Session) -> None:
+        self.session = session
+
+    def get(self, item_id: uuid.UUID) -> MemoryState | None:
+        return self.session.get(MemoryState, item_id)
+
+    def save(self, state: MemoryState) -> MemoryState:
+        self.session.add(state)
+        self.session.flush()
+        return state
 
 
 class CourseRepository:

@@ -57,6 +57,9 @@ flowchart LR
 - **Grounded chat** — duplicate-free context assembly, explicit token budgets,
   persisted conversation history, source citations, and server-sent-event
   streaming.
+- **Adaptive study** — approved flashcards and questions, resumable sessions,
+  immutable review attempts, cited short-answer feedback, and a versioned
+  forgetting-curve schedule.
 - **Operator interface** — document upload and inspection, ingestion status,
   re-indexing, deletion, conversation history, source filtering, and citation
   inspection.
@@ -190,6 +193,9 @@ are listed below; see [`.env.example`](.env.example) for the complete reference.
 | `EMBEDDING_CACHE_TTL_SECONDS` | `86400` | Query-embedding cache lifetime. |
 | `RETRIEVAL_CACHE_TTL_SECONDS` | `3600` | Retrieval-result cache lifetime. |
 | `CHAT_MODEL` | `gemini-3.5-flash` | Chat model identifier. |
+| `SCHEDULER_RECALL_THRESHOLD` | `0.85` | Predicted recall level that triggers the next review. |
+| `SCHEDULER_MIN_INTERVAL_MINUTES` | `10` | Shortest adaptive review interval. |
+| `SCHEDULER_MAX_INTERVAL_DAYS` | `365` | Longest adaptive review interval. |
 | `API_AUTH_TOKEN` | empty | Bearer token; required in production and must contain at least 24 characters. |
 | `CHUNKING_STRATEGY` | `fixed` | Chunking mode: `fixed` or `recursive`. |
 | `CHUNK_SIZE` | `200` | Maximum tokens per chunk. |
@@ -353,6 +359,12 @@ stream emits `metadata`, `delta`, and `done` events.
 | `POST` | `/api/v1/documents/{id}/index` | Re-index a document |
 | `DELETE` | `/api/v1/documents/{id}` | Delete a document |
 | `GET` | `/api/v1/ingestion-jobs/{id}` | Inspect ingestion progress |
+| `GET` | `/api/v1/study/queue` | List the explainable daily review queue |
+| `POST` | `/api/v1/study/sessions` | Start a course, topic, or daily session |
+| `GET` | `/api/v1/study/sessions/{id}` | Restore an active study session |
+| `POST` | `/api/v1/study/sessions/{id}/answers` | Grade and schedule one answer |
+| `POST` | `/api/v1/study/sessions/{id}/complete` | Complete a fully answered session |
+| `GET` | `/api/v1/study-items/{id}/memory` | Inspect current item memory state |
 | `POST` | `/api/v1/retrieval/search` | Run keyword, vector, or hybrid search |
 | `POST` | `/api/v1/retrieval/context` | Build a reranked context package |
 | `POST` | `/api/v1/chat` | Generate a grounded answer |
@@ -419,7 +431,8 @@ health checks, reverse-proxy guidance, backups, upgrades, and rollback.
 │   ├── embeddings/           Embedding providers and indexing
 │   ├── ingest/               Parsing, storage, pipeline, and worker
 │   ├── persistence/          Database models and repositories
-│   └── retrieval/            Keyword, vector, and hybrid retrieval
+│   ├── retrieval/            Keyword, vector, and hybrid retrieval
+│   └── study/                Structured grading and adaptive scheduling
 ├── tests/                    Unit and PostgreSQL integration tests
 ├── docker-compose.yml        Application and pgvector stack
 └── Dockerfile                Multi-stage production image

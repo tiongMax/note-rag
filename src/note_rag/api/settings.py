@@ -54,6 +54,9 @@ class ApiSettings:
     chat_max_output_tokens: int = 1024
     chat_history_max_messages: int = 20
     chat_history_max_tokens: int = 2000
+    scheduler_recall_threshold: float = 0.85
+    scheduler_min_interval_minutes: int = 10
+    scheduler_max_interval_days: int = 365
     background_worker_enabled: bool = True
     worker_max_attempts: int = 3
     worker_retry_backoff_seconds: float = 2.0
@@ -114,6 +117,12 @@ class ApiSettings:
                 raise ValueError(f"{name} must be greater than zero")
         if self.max_request_bytes < self.max_upload_bytes:
             raise ValueError("MAX_REQUEST_BYTES must be at least MAX_UPLOAD_BYTES")
+        if not 0 < self.scheduler_recall_threshold < 1:
+            raise ValueError("SCHEDULER_RECALL_THRESHOLD must be between 0 and 1")
+        if self.scheduler_min_interval_minutes <= 0:
+            raise ValueError("SCHEDULER_MIN_INTERVAL_MINUTES must be positive")
+        if self.scheduler_max_interval_days <= 0:
+            raise ValueError("SCHEDULER_MAX_INTERVAL_DAYS must be positive")
         if self.log_level.upper() not in {
             "CRITICAL",
             "ERROR",
@@ -206,6 +215,15 @@ class ApiSettings:
             chat_max_output_tokens=int(os.getenv("CHAT_MAX_OUTPUT_TOKENS", "1024")),
             chat_history_max_messages=int(os.getenv("CHAT_HISTORY_MAX_MESSAGES", "20")),
             chat_history_max_tokens=int(os.getenv("CHAT_HISTORY_MAX_TOKENS", "2000")),
+            scheduler_recall_threshold=float(
+                os.getenv("SCHEDULER_RECALL_THRESHOLD", "0.85")
+            ),
+            scheduler_min_interval_minutes=int(
+                os.getenv("SCHEDULER_MIN_INTERVAL_MINUTES", "10")
+            ),
+            scheduler_max_interval_days=int(
+                os.getenv("SCHEDULER_MAX_INTERVAL_DAYS", "365")
+            ),
             background_worker_enabled=_env_bool(
                 "BACKGROUND_WORKER_ENABLED",
                 True,
