@@ -15,7 +15,10 @@ from note_rag.persistence import (
     GenerationKind,
     IndexingStatus,
     IngestionJobStatus,
+    ReviewRating,
     StudyItemType,
+    StudySessionMode,
+    StudySessionStatus,
     TopicState,
 )
 from note_rag.retrieval import SearchMode
@@ -182,6 +185,97 @@ class StudyItemResponse(BaseModel):
     sources: list[SourcePassageResponse]
     created_at: datetime
     updated_at: datetime
+
+
+class StudySessionCreateRequest(BaseModel):
+    course_id: uuid.UUID
+    topic_id: uuid.UUID | None = None
+    item_ids: list[uuid.UUID] = Field(default_factory=list, max_length=100)
+    mode: StudySessionMode = StudySessionMode.DAILY_REVIEW
+    limit: int = Field(default=20, ge=1, le=100)
+
+
+class StudyQuestionResponse(BaseModel):
+    id: uuid.UUID
+    topic_id: uuid.UUID
+    item_type: StudyItemType
+    prompt: str
+    options: list[str]
+    difficulty: int
+    reason: str
+
+
+class StudySessionResponse(BaseModel):
+    id: uuid.UUID
+    course_id: uuid.UUID
+    topic_id: uuid.UUID | None
+    mode: StudySessionMode
+    status: StudySessionStatus
+    items: list[StudyQuestionResponse]
+    answered_item_ids: list[uuid.UUID]
+    completed_at: datetime | None
+    created_at: datetime
+
+
+class StudyAnswerRequest(BaseModel):
+    item_id: uuid.UUID
+    submitted_answer: str = Field(max_length=8000)
+    rating: ReviewRating
+    confidence: int = Field(ge=1, le=5)
+    response_time_ms: int = Field(ge=0, le=86_400_000)
+    hint_used: bool = False
+    idempotency_key: str = Field(min_length=8, max_length=128)
+
+
+class MemoryStateResponse(BaseModel):
+    study_item_id: uuid.UUID
+    half_life_days: float
+    difficulty: int
+    last_review_at: datetime
+    next_review_at: datetime
+    predicted_recall: float
+    successful_reviews: int
+    failed_reviews: int
+    scheduler_version: str
+
+
+class ReviewAttemptResponse(BaseModel):
+    id: uuid.UUID
+    session_id: uuid.UUID
+    study_item_id: uuid.UUID
+    submitted_answer: str
+    expected_answer: str
+    correct: bool
+    score: float
+    rating: ReviewRating
+    confidence: int
+    response_time_ms: int
+    hint_used: bool
+    grading_details: dict[str, Any]
+    sources: list[SourcePassageResponse]
+    reviewed_at: datetime
+    overridden_correct: bool | None
+    overridden_score: float | None
+    override_reason: str | None
+    memory: MemoryStateResponse
+
+
+class ReviewOverrideRequest(BaseModel):
+    correct: bool
+    score: float = Field(ge=0, le=1)
+    reason: str = Field(min_length=1, max_length=2000)
+
+
+class ReviewQueueItemResponse(StudyQuestionResponse):
+    due_at: datetime | None
+    predicted_recall: float | None
+
+
+class ReviewQueueResponse(BaseModel):
+    course_id: uuid.UUID
+    generated_at: datetime
+    estimated_minutes: int
+    items: list[ReviewQueueItemResponse]
 
 
 class StoredChunkResponse(BaseModel):
