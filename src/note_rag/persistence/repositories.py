@@ -15,10 +15,195 @@ from note_rag.persistence.models import (
     ChatRole,
     ChunkRecord,
     Conversation,
+    Course,
+    CourseDocument,
     Document,
     IngestionJob,
     IngestionJobStatus,
+    Topic,
+    TopicSource,
+    TopicState,
 )
+
+
+class CourseRepository:
+    def __init__(self, session: Session) -> None:
+        self.session = session
+
+    def add(self, course: Course) -> Course:
+        self.session.add(course)
+        self.session.flush()
+        return course
+
+    def get(self, course_id: uuid.UUID) -> Course | None:
+        return self.session.get(Course, course_id)
+
+    def list(self, *, offset: int = 0, limit: int = 100) -> list[Course]:
+        statement = (
+            select(Course)
+            .order_by(Course.created_at, Course.id)
+            .offset(offset)
+            .limit(limit)
+        )
+        return list(self.session.scalars(statement))
+
+    def attach_document(self, course: Course, document: Document) -> CourseDocument:
+        existing = self.session.get(CourseDocument, (course.id, document.id))
+        if existing is not None:
+            return existing
+        link = CourseDocument(course=course, document=document)
+        self.session.add(link)
+        self.session.flush()
+        return link
+
+    def detach_document(self, course_id: uuid.UUID, document_id: uuid.UUID) -> bool:
+        link = self.session.get(CourseDocument, (course_id, document_id))
+        if link is None:
+            return False
+        self.session.delete(link)
+        self.session.flush()
+        return True
+
+    def delete(self, course: Course) -> None:
+        self.session.delete(course)
+        self.session.flush()
+
+
+class TopicRepository:
+    def __init__(self, session: Session) -> None:
+        self.session = session
+
+    def get(self, topic_id: uuid.UUID) -> Topic | None:
+        return self.session.get(Topic, topic_id)
+
+    def list_for_course(self, course_id: uuid.UUID) -> list[Topic]:
+        statement = (
+            select(Topic)
+            .where(Topic.course_id == course_id)
+            .order_by(Topic.parent_id, Topic.position, Topic.id)
+        )
+        return list(self.session.scalars(statement))
+
+    def add(
+        self,
+        course: Course,
+        *,
+        title: str,
+        description: str = "",
+        parent: Topic | None = None,
+        state: TopicState = TopicState.DRAFT,
+        position: int | None = None,
+    ) -> Topic:
+        self._validate_parent(course.id, parent)
+        siblings = self._siblings(course.id, parent.id if parent else None)
+        resolved_position = len(siblings) if position is None else position
+        if not 0 <= resolved_position <= len(siblings):
+            raise ValueError("position is outside the sibling range")
+        self._shift(siblings[resolved_position:], 1)
+        topic = Topic(
+            course=course,
+            parent=parent,
+            title=title,
+            description=description,
+            state=state,
+            position=resolved_position,
+        )
+        self.session.add(topic)
+        self.session.flush()
+        return topic
+
+    def update(
+        self,
+        topic: Topic,
+        *,
+        title: str | None = None,
+        description: str | None = None,
+        state: TopicState | None = None,
+        parent: Topic | None | object = ...,
+        position: int | None = None,
+    ) -> Topic:
+        old_parent_id = topic.parent_id
+        new_parent = topic.parent if parent is ... else cast(Topic | None, parent)
+        self._validate_parent(topic.course_id, new_parent, topic=topic)
+        new_parent_id = new_parent.id if new_parent else None
+        if title is not None:
+            topic.title = title
+        if description is not None:
+            topic.description = description
+        if state is not None:
+            topic.state = state
+        if new_parent_id != old_parent_id or position is not None:
+            old_siblings = self._siblings(
+                topic.course_id, old_parent_id, exclude=topic.id
+            )
+            self._renumber(old_siblings)
+            new_siblings = self._siblings(
+                topic.course_id, new_parent_id, exclude=topic.id
+            )
+            resolved = len(new_siblings) if position is None else position
+            if not 0 <= resolved <= len(new_siblings):
+                raise ValueError("position is outside the sibling range")
+            topic.parent = new_parent
+            new_siblings.insert(resolved, topic)
+            self._renumber(new_siblings)
+        self.session.flush()
+        return topic
+
+    def add_source(self, topic: Topic, chunk: ChunkRecord) -> TopicSource:
+        if chunk.document_id not in {
+            link.document_id for link in topic.course.document_links
+        }:
+            raise ValueError("source chunk document is not attached to the course")
+        source = self.session.get(TopicSource, (topic.id, chunk.id))
+        if source is None:
+            source = TopicSource(topic=topic, chunk=chunk)
+            self.session.add(source)
+            self.session.flush()
+        return source
+
+    def delete(self, topic: Topic) -> None:
+        siblings = self._siblings(topic.course_id, topic.parent_id, exclude=topic.id)
+        self.session.delete(topic)
+        self.session.flush()
+        self._renumber(siblings)
+        self.session.flush()
+
+    def _validate_parent(
+        self, course_id: uuid.UUID, parent: Topic | None, *, topic: Topic | None = None
+    ) -> None:
+        if parent is None:
+            return
+        if parent.course_id != course_id:
+            raise ValueError("parent topic must belong to the same course")
+        current: Topic | None = parent
+        while current is not None:
+            if topic is not None and current.id == topic.id:
+                raise ValueError("topic hierarchy cannot contain a cycle")
+            current = current.parent
+
+    def _siblings(
+        self,
+        course_id: uuid.UUID,
+        parent_id: uuid.UUID | None,
+        *,
+        exclude: uuid.UUID | None = None,
+    ) -> list[Topic]:
+        statement = select(Topic).where(
+            Topic.course_id == course_id, Topic.parent_id == parent_id
+        )
+        if exclude is not None:
+            statement = statement.where(Topic.id != exclude)
+        return list(self.session.scalars(statement.order_by(Topic.position, Topic.id)))
+
+    @staticmethod
+    def _shift(topics: list[Topic], amount: int) -> None:
+        for topic in reversed(topics):
+            topic.position += amount
+
+    @staticmethod
+    def _renumber(topics: list[Topic]) -> None:
+        for position, topic in enumerate(topics):
+            topic.position = position
 
 
 class DocumentRepository:
@@ -54,6 +239,9 @@ class DocumentRepository:
 class ChunkRepository:
     def __init__(self, session: Session) -> None:
         self.session = session
+
+    def get(self, chunk_id: uuid.UUID) -> ChunkRecord | None:
+        return self.session.get(ChunkRecord, chunk_id)
 
     def add_from_chunks(
         self,

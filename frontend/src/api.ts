@@ -2,8 +2,10 @@ import type {
   Chunk,
   Conversation,
   ConversationDetail,
+  Course,
   Document,
   IngestionJob,
+  Topic,
   StreamDone,
   UploadResult,
 } from "./types";
@@ -101,6 +103,42 @@ export const api = {
   conversations: () => request<Conversation[]>("/conversations"),
   conversation: (id: string) =>
     request<ConversationDetail>(`/conversations/${id}`),
+  courses: () => request<Course[]>("/courses"),
+  createCourse: (title: string, description: string) =>
+    request<Course>("/courses", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title, description }),
+    }),
+  updateCourse: (id: string, changes: Partial<Pick<Course, "title" | "description">>) =>
+    request<Course>(`/courses/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(changes),
+    }),
+  deleteCourse: (id: string) => request<void>(`/courses/${id}`, { method: "DELETE" }),
+  attachDocuments: (courseId: string, documentIds: string[]) =>
+    request<Course>(`/courses/${courseId}/documents`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ document_ids: documentIds }),
+    }),
+  detachDocument: (courseId: string, documentId: string) =>
+    request<void>(`/courses/${courseId}/documents/${documentId}`, { method: "DELETE" }),
+  topics: (courseId: string) => request<Topic[]>(`/courses/${courseId}/topics`),
+  createTopic: (courseId: string, input: { title: string; parent_id?: string | null; position?: number; state?: Topic["state"] }) =>
+    request<Topic>(`/courses/${courseId}/topics`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    }),
+  updateTopic: (courseId: string, topicId: string, changes: Partial<Pick<Topic, "title" | "description" | "parent_id" | "position" | "state">>) =>
+    request<Topic>(`/courses/${courseId}/topics/${topicId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(changes),
+    }),
+  deleteTopic: (courseId: string, topicId: string) => request<void>(`/courses/${courseId}/topics/${topicId}`, { method: "DELETE" }),
 };
 
 interface ChatOptions {

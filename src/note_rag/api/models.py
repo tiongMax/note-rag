@@ -12,6 +12,7 @@ from note_rag.persistence import (
     DocumentStatus,
     IndexingStatus,
     IngestionJobStatus,
+    TopicState,
 )
 from note_rag.retrieval import SearchMode
 
@@ -56,6 +57,60 @@ class DocumentResponse(BaseModel):
     embedding_model: str | None
     indexed_at: datetime | None
     indexing_error: str | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class CourseCreateRequest(BaseModel):
+    title: str = Field(min_length=1, max_length=255)
+    description: str = Field(default="", max_length=5000)
+
+
+class CourseUpdateRequest(BaseModel):
+    title: str | None = Field(default=None, min_length=1, max_length=255)
+    description: str | None = Field(default=None, max_length=5000)
+
+
+class CourseDocumentsRequest(BaseModel):
+    document_ids: list[uuid.UUID] = Field(min_length=1)
+
+
+class CourseResponse(BaseModel):
+    id: uuid.UUID
+    title: str
+    description: str
+    document_ids: list[uuid.UUID]
+    topic_count: int
+    created_at: datetime
+    updated_at: datetime
+
+
+class TopicCreateRequest(BaseModel):
+    title: str = Field(min_length=1, max_length=255)
+    description: str = Field(default="", max_length=5000)
+    parent_id: uuid.UUID | None = None
+    position: int | None = Field(default=None, ge=0)
+    state: TopicState = TopicState.DRAFT
+    source_chunk_ids: list[uuid.UUID] = Field(default_factory=list)
+
+
+class TopicUpdateRequest(BaseModel):
+    title: str | None = Field(default=None, min_length=1, max_length=255)
+    description: str | None = Field(default=None, max_length=5000)
+    parent_id: uuid.UUID | None = None
+    position: int | None = Field(default=None, ge=0)
+    state: TopicState | None = None
+
+
+class TopicResponse(BaseModel):
+    id: uuid.UUID
+    course_id: uuid.UUID
+    parent_id: uuid.UUID | None
+    title: str
+    description: str
+    position: int
+    state: TopicState
+    source_chunk_ids: list[uuid.UUID]
     created_at: datetime
     updated_at: datetime
 
