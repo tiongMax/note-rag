@@ -118,6 +118,35 @@ def test_generated_material_review_workflow(database: Database, tmp_path: Path) 
     assert approved.status_code == 200
     assert approved.json()["approval_status"] == "approved"
 
+    study_session = client.post(
+        "/api/v1/study/sessions",
+        json={"course_id": course_id, "item_ids": [item["id"]]},
+    ).json()
+    attempt = client.post(
+        f"/api/v1/study/sessions/{study_session['id']}/answers",
+        json={
+            "item_id": item["id"],
+            "submitted_answer": "ATP",
+            "rating": "good",
+            "confidence": 4,
+            "response_time_ms": 800,
+            "hint_used": False,
+            "idempotency_key": "generated-item-review",
+        },
+    )
+    assert attempt.status_code == 201
+    assert attempt.json()["correct"] is True
+    assert (
+        client.post(f"/api/v1/study/sessions/{study_session['id']}/complete").json()[
+            "status"
+        ]
+        == "completed"
+    )
+    progress = client.get(f"/api/v1/courses/{course_id}/progress").json()
+    assert progress["coverage"] == 1
+    assert progress["mastery"] > 0
+    assert len(client.get(f"/api/v1/courses/{course_id}/progress/history").json()) == 1
+
     assert client.delete(f"/api/v1/study-items/{item['id']}").status_code == 204
     assert (
         client.get(

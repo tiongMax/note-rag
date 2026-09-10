@@ -177,3 +177,34 @@ def test_complete_adaptive_study_workflow(database: Database, tmp_path: Path) ->
     assert memory["predicted_recall"] < 1
     updated_queue = client.get(f"/api/v1/study/queue?course_id={course_id}").json()
     assert "predicted recall" in updated_queue["items"][0]["reason"].lower()
+
+    progress = client.get(f"/api/v1/courses/{course_id}/progress")
+    assert progress.status_code == 200
+    assert progress.json()["coverage"] == 1
+    assert progress.json()["mastery"] < 1
+    assert progress.json()["predicted_retention"] < 1
+    assert progress.json()["weakest_topic_id"] == str(topic.id)
+    assert progress.json()["factors"]["difficulty_weighted"] == "true"
+
+    history = client.get(f"/api/v1/courses/{course_id}/progress/history").json()
+    assert len(history) == 4  # Three answers and one disputed-grade override.
+    assert history[-1]["captured_at"].startswith("2026-09-10T12:00:00")
+
+    item_progress = client.get(f"/api/v1/study-items/{item_ids[0]}/progress").json()
+    assert len(item_progress["observations"]) == 1
+    assert len(item_progress["predictions"]) == 31
+    assert item_progress["predictions"][0]["predicted_recall"] < 1
+
+    metrics = client.get("/metrics").text
+    assert (
+        'note_rag_product_events_total{event="review_answered",outcome="correct"} 1'
+        in metrics
+    )
+    assert (
+        "note_rag_product_events_total"
+        '{event="study_session_completed",outcome="success"} 1' in metrics
+    )
+    assert (
+        'note_rag_product_events_total{event="grade_override",outcome="accepted"} 1'
+        in metrics
+    )

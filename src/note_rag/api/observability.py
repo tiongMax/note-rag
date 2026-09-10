@@ -63,6 +63,7 @@ class MetricsRegistry:
         self._cache_requests: Counter[tuple[str, str]] = Counter()
         self._embedding_provider_calls: Counter[str] = Counter()
         self._cache_invalidations: Counter[str] = Counter()
+        self._product_events: Counter[tuple[str, str]] = Counter()
         self._corpus_version = 0
         self._in_progress = 0
 
@@ -99,6 +100,10 @@ class MetricsRegistry:
         with self._lock:
             self._corpus_version = version
 
+    def record_product_event(self, event: str, outcome: str = "success") -> None:
+        with self._lock:
+            self._product_events[(event, outcome)] += 1
+
     def render(self) -> str:
         with self._lock:
             requests = self._requests.copy()
@@ -106,6 +111,7 @@ class MetricsRegistry:
             cache_requests = self._cache_requests.copy()
             provider_calls = self._embedding_provider_calls.copy()
             invalidations = self._cache_invalidations.copy()
+            product_events = self._product_events.copy()
             corpus_version = self._corpus_version
             in_progress = self._in_progress
             uptime = time.monotonic() - self._started_at
@@ -178,6 +184,18 @@ class MetricsRegistry:
                 "note_rag_cache_invalidations_total"
                 f'{{reason="{_escape_label(reason)}"}} {count}'
             )
+        lines.extend(
+            [
+                (
+                    "# HELP note_rag_product_events_total Learning workflow "
+                    "and generation quality events."
+                ),
+                "# TYPE note_rag_product_events_total counter",
+            ]
+        )
+        for (event, outcome), count in sorted(product_events.items()):
+            labels = _labels(event=event, outcome=outcome)
+            lines.append(f"note_rag_product_events_total{{{labels}}} {count}")
         lines.extend(
             [
                 "# HELP note_rag_corpus_version Current retrieval corpus version.",

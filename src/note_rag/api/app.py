@@ -32,6 +32,7 @@ from note_rag.api.models import (
     ConversationResponse,
     CourseCreateRequest,
     CourseDocumentsRequest,
+    CourseProgressResponse,
     CourseResponse,
     CourseUpdateRequest,
     DocumentResponse,
@@ -40,8 +41,12 @@ from note_rag.api.models import (
     IndexingResponse,
     IngestionJobResponse,
     IngestionResponse,
+    ItemProgressResponse,
     MemoryStateResponse,
+    ProgressSnapshotResponse,
+    RecallPredictionResponse,
     ReviewAttemptResponse,
+    ReviewObservationResponse,
     ReviewOverrideRequest,
     ReviewQueueItemResponse,
     ReviewQueueResponse,
@@ -57,6 +62,7 @@ from note_rag.api.models import (
     StudySessionResponse,
     TopicCreateRequest,
     TopicMergeRequest,
+    TopicProgressResponse,
     TopicResponse,
     TopicUpdateRequest,
 )
@@ -112,6 +118,7 @@ from note_rag.persistence import (
     GenerationJobStatus,
     GenerationKind,
     IngestionJobRepository,
+    MasterySnapshotRepository,
     MemoryState,
     MemoryStateRepository,
     ReviewAttempt,
@@ -126,6 +133,7 @@ from note_rag.persistence import (
     TopicRepository,
     TopicState,
 )
+from note_rag.progress import ProgressService
 from note_rag.retrieval import (
     PersistentRetrievalCache,
     RetrievalService,
@@ -545,6 +553,7 @@ def create_app(
             topic = TopicRepository(session).get(topic_id)
             if topic is None or topic.course_id != course_id:
                 raise HTTPException(status_code=404, detail="topic not found")
+            metrics.record_product_event("citation_inspected", "topic_source")
             return [
                 SourcePassageResponse(
                     chunk_id=link.chunk.id,
@@ -610,6 +619,7 @@ def create_app(
             topic = repository.get(topic_id)
             if topic is None or topic.course_id != course_id:
                 raise HTTPException(status_code=404, detail="topic not found")
+            previous_state = topic.state
             parent: Topic | None | object = ...
             if "parent_id" in request.model_fields_set:
                 parent = (
@@ -637,6 +647,10 @@ def create_app(
                 )
             except ValueError as error:
                 raise HTTPException(status_code=422, detail=str(error)) from error
+            if request.state is TopicState.APPROVED and (
+                previous_state is not TopicState.APPROVED
+            ):
+                metrics.record_product_event("topic_review", "approved")
             return topic_response(topic)
 
     @app.delete(
@@ -683,6 +697,7 @@ def create_app(
             )
             job_id = job.id
             existing_status = job.status
+            metrics.record_product_event("generation_requested", kind.value)
         if (
             not app_settings.background_worker_enabled
             and existing_status is GenerationJobStatus.QUEUED
@@ -694,6 +709,9 @@ def create_app(
                     GenerationJobStatus.COMPLETED,
                     GenerationJobStatus.FAILED,
                 }:
+                    metrics.record_product_event(
+                        "generation_finished", result.status.value
+                    )
                     return result
         return generation_job_response(job_id)
 
@@ -801,6 +819,7 @@ def create_app(
             item = StudyItemRepository(session).get(item_id)
             if item is None:
                 raise HTTPException(status_code=404, detail="study item not found")
+            previous_status = item.approval_status
             for field in ("prompt", "answer", "explanation"):
                 value = getattr(request, field)
                 if value is not None:
@@ -829,6 +848,15 @@ def create_app(
                 " ".join(item.prompt.casefold().split()).encode()
             ).hexdigest()
             session.flush()
+            if request.approval_status is ApprovalStatus.APPROVED and (
+                previous_status is not ApprovalStatus.APPROVED
+            ):
+                metrics.record_product_event("study_item_review", "approved")
+            if any(
+                field in request.model_fields_set
+                for field in ("prompt", "answer", "explanation", "options")
+            ):
+                metrics.record_product_event("study_item_review", "edited")
             return study_item_response(item)
 
     @app.delete("/api/v1/study-items/{item_id}", status_code=204, tags=["study-items"])
@@ -839,6 +867,7 @@ def create_app(
                 raise HTTPException(status_code=404, detail="study item not found")
             item.approval_status = ApprovalStatus.ARCHIVED
             item.archived_at = datetime.now(UTC)
+            metrics.record_product_event("study_item_review", "archived")
         return Response(status_code=204)
 
     @app.post(
@@ -1108,6 +1137,7 @@ def create_app(
                 ),
                 selected,
             )
+            metrics.record_product_event("study_session_started", mode.value)
             return session_response(study_session)
 
     @app.get(
@@ -1213,6 +1243,14 @@ def create_app(
             memories = MemoryStateRepository(session)
             state = scheduler.update(item, attempt, memories.get(item.id))
             memories.save(state)
+            progress = ProgressService(session, scheduler, clock=reviewed_at)
+            progress.snapshot_topic(item.topic_id)
+            progress.snapshot_course(item.topic.course_id)
+            metrics.record_product_event(
+                "review_answered", "correct" if grade.correct else "incorrect"
+            )
+            if request.hint_used:
+                metrics.record_product_event("review_hint", "used")
             return attempt_response(attempt, state)
 
     @app.post(
@@ -1232,6 +1270,7 @@ def create_app(
                 )
             if study_session.status is StudySessionStatus.ACTIVE:
                 sessions.complete(study_session, now())
+                metrics.record_product_event("study_session_completed", "success")
             return session_response(study_session)
 
     @app.get(
@@ -1286,7 +1325,159 @@ def create_app(
             ):
                 setattr(state, field, getattr(rebuilt, field))
             session.flush()
+            progress = ProgressService(session, scheduler, clock=now())
+            progress.snapshot_topic(attempt.study_item.topic_id)
+            progress.snapshot_course(attempt.study_item.topic.course_id)
+            metrics.record_product_event("grade_override", "accepted")
             return attempt_response(attempt, state)
+
+    @app.get(
+        "/api/v1/courses/{course_id}/progress",
+        response_model=CourseProgressResponse,
+        tags=["progress"],
+    )
+    def get_course_progress(course_id: uuid.UUID) -> CourseProgressResponse:
+        with resolved_database.session() as session:
+            try:
+                course, summary, topic_summaries = ProgressService(
+                    session, scheduler, clock=now()
+                ).course(course_id)
+            except LookupError as error:
+                raise HTTPException(status_code=404, detail=str(error)) from error
+            topic_responses = [
+                TopicProgressResponse(
+                    topic_id=topic.id,
+                    title=topic.title,
+                    coverage=topic_summary.coverage,
+                    mastery=topic_summary.mastery,
+                    predicted_retention=topic_summary.predicted_retention,
+                    encountered_items=topic_summary.encountered_items,
+                    total_items=topic_summary.total_items,
+                    factors=topic_summary.factors,
+                )
+                for topic, topic_summary in topic_summaries
+            ]
+            eligible = [topic for topic in topic_responses if topic.total_items]
+            weakest = min(
+                eligible,
+                key=lambda topic: (
+                    topic.mastery,
+                    topic.predicted_retention,
+                    str(topic.topic_id),
+                ),
+                default=None,
+            )
+            return CourseProgressResponse(
+                course_id=course.id,
+                title=course.title,
+                topics=topic_responses,
+                weakest_topic_id=weakest.topic_id if weakest else None,
+                recommended_action=(
+                    f"Practise {weakest.title}"
+                    if weakest
+                    else "Approve study items to begin"
+                ),
+                coverage=summary.coverage,
+                mastery=summary.mastery,
+                predicted_retention=summary.predicted_retention,
+                encountered_items=summary.encountered_items,
+                total_items=summary.total_items,
+                factors=summary.factors,
+            )
+
+    @app.get(
+        "/api/v1/courses/{course_id}/progress/history",
+        response_model=list[ProgressSnapshotResponse],
+        tags=["progress"],
+    )
+    def get_course_progress_history(
+        course_id: uuid.UUID, limit: int = 90
+    ) -> list[ProgressSnapshotResponse]:
+        with resolved_database.session() as session:
+            if CourseRepository(session).get(course_id) is None:
+                raise HTTPException(status_code=404, detail="course not found")
+            return [
+                ProgressSnapshotResponse(
+                    id=snapshot.id,
+                    coverage=snapshot.coverage,
+                    mastery=snapshot.mastery,
+                    predicted_retention=snapshot.predicted_retention,
+                    encountered_items=snapshot.encountered_items,
+                    total_items=snapshot.total_items,
+                    factors=snapshot.factors,
+                    captured_at=snapshot.captured_at,
+                )
+                for snapshot in MasterySnapshotRepository(session).list_for_course(
+                    course_id, limit=max(1, min(limit, 365))
+                )
+            ]
+
+    @app.get(
+        "/api/v1/topics/{topic_id}/progress",
+        response_model=TopicProgressResponse,
+        tags=["progress"],
+    )
+    def get_topic_progress(topic_id: uuid.UUID) -> TopicProgressResponse:
+        with resolved_database.session() as session:
+            try:
+                topic, summary = ProgressService(session, scheduler, clock=now()).topic(
+                    topic_id
+                )
+            except LookupError as error:
+                raise HTTPException(status_code=404, detail=str(error)) from error
+            return TopicProgressResponse(
+                topic_id=topic.id,
+                title=topic.title,
+                coverage=summary.coverage,
+                mastery=summary.mastery,
+                predicted_retention=summary.predicted_retention,
+                encountered_items=summary.encountered_items,
+                total_items=summary.total_items,
+                factors=summary.factors,
+            )
+
+    @app.get(
+        "/api/v1/study-items/{item_id}/progress",
+        response_model=ItemProgressResponse,
+        tags=["progress"],
+    )
+    def get_study_item_progress(item_id: uuid.UUID) -> ItemProgressResponse:
+        with resolved_database.session() as session:
+            item = StudyItemRepository(session).get(item_id)
+            if item is None:
+                raise HTTPException(status_code=404, detail="study item not found")
+            progress = ProgressService(session, scheduler, clock=now())
+            mastery, factors = progress.item_mastery(item)
+            return ItemProgressResponse(
+                study_item_id=item.id,
+                prompt=item.prompt,
+                mastery=mastery,
+                factors=factors,
+                memory=memory_response(item.memory_state)
+                if item.memory_state is not None
+                else None,
+                observations=[
+                    ReviewObservationResponse(
+                        attempt_id=attempt.id,
+                        reviewed_at=attempt.reviewed_at,
+                        score=attempt.overridden_score
+                        if attempt.overridden_score is not None
+                        else attempt.score,
+                        correct=attempt.overridden_correct
+                        if attempt.overridden_correct is not None
+                        else attempt.correct,
+                        overridden=attempt.overridden_score is not None,
+                    )
+                    for attempt in sorted(
+                        item.review_attempts,
+                        key=lambda value: (aware(value.reviewed_at), str(value.id)),
+                    )
+                ],
+                predictions=[
+                    RecallPredictionResponse.model_validate(point)
+                    for point in progress.item_projection(item)
+                ],
+            )
 
     @app.post(
         "/api/v1/documents",
