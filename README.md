@@ -60,6 +60,9 @@ flowchart LR
 - **Adaptive study** — approved flashcards and questions, resumable sessions,
   immutable review attempts, cited short-answer feedback, and a versioned
   forgetting-curve schedule.
+- **Transparent learning analytics** — separate coverage, observed mastery,
+  predicted retention, immutable progress snapshots, weak-topic actions, and
+  clearly labelled forgetting curves.
 - **Operator interface** — document upload and inspection, ingestion status,
   re-indexing, deletion, conversation history, source filtering, and citation
   inspection.
@@ -365,6 +368,10 @@ stream emits `metadata`, `delta`, and `done` events.
 | `POST` | `/api/v1/study/sessions/{id}/answers` | Grade and schedule one answer |
 | `POST` | `/api/v1/study/sessions/{id}/complete` | Complete a fully answered session |
 | `GET` | `/api/v1/study-items/{id}/memory` | Inspect current item memory state |
+| `GET` | `/api/v1/courses/{id}/progress` | Inspect course and topic learning progress |
+| `GET` | `/api/v1/courses/{id}/progress/history` | Read immutable progress history |
+| `GET` | `/api/v1/topics/{id}/progress` | Inspect topic progress factors |
+| `GET` | `/api/v1/study-items/{id}/progress` | Compare observed attempts with recall predictions |
 | `POST` | `/api/v1/retrieval/search` | Run keyword, vector, or hybrid search |
 | `POST` | `/api/v1/retrieval/context` | Build a reranked context package |
 | `POST` | `/api/v1/chat` | Generate a grounded answer |
@@ -431,6 +438,7 @@ health checks, reverse-proxy guidance, backups, upgrades, and rollback.
 │   ├── embeddings/           Embedding providers and indexing
 │   ├── ingest/               Parsing, storage, pipeline, and worker
 │   ├── persistence/          Database models and repositories
+│   ├── progress/             Mastery, coverage, retention, and snapshots
 │   ├── retrieval/            Keyword, vector, and hybrid retrieval
 │   └── study/                Structured grading and adaptive scheduling
 ├── tests/                    Unit and PostgreSQL integration tests

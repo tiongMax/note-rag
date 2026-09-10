@@ -1,15 +1,16 @@
-import { Archive, BookOpen, Check, ChevronDown, ChevronRight, FilePlus2, FolderOpen, LoaderCircle, Pencil, Plus, RotateCcw, Save, Sparkles, Trash2, X } from "lucide-react";
+import { Archive, BarChart3, BookOpen, Check, ChevronDown, ChevronRight, FilePlus2, FolderOpen, LoaderCircle, Pencil, Play, Plus, RotateCcw, Save, Sparkles, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { errorText } from "./App";
 import { api } from "./api";
-import type { Course, Document, GenerationJob, SourcePassage, StudyItem, Topic } from "./types";
+import type { Course, CourseProgress, Document, GenerationJob, ProgressSnapshot, SourcePassage, StudyItem, Topic } from "./types";
 
 interface Props {
   documents: Document[];
   notify: (message: string) => void;
+  startStudy: (courseId: string, topicId: string) => Promise<void>;
 }
 
-export function CoursesView({ documents, notify }: Props) {
+export function CoursesView({ documents, notify, startStudy }: Props) {
   const [courses, setCourses] = useState<Course[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [topics, setTopics] = useState<Topic[]>([]);
@@ -58,6 +59,7 @@ export function CoursesView({ documents, notify }: Props) {
           {selected && <section className="course-detail">
             <header><div><span className="eyebrow">Course</span><h2>{selected.title}</h2><p>{selected.description || "No description yet."}</p></div><div className="course-actions"><button className="secondary-button" onClick={() => setAttaching(true)}><FilePlus2 size={15} /> Sources</button><button className="icon-button danger" title="Delete course" onClick={() => run(async () => { if (!window.confirm(`Delete “${selected.title}”? Its source documents will be kept.`)) return; await api.deleteCourse(selected.id); await refreshCourses(); notify("Course deleted; source documents were kept."); })}><Trash2 size={16} /></button></div></header>
             <CourseSources course={selected} documents={documents} onDetach={(documentId) => run(async () => { await api.detachDocument(selected.id, documentId); await refreshCourses(selected.id); notify("Source detached."); })} />
+            <CourseProgressPanel course={selected} startStudy={startStudy} notify={notify} />
             <LearningMaterials course={selected} topics={topics} reload={async () => { await refreshTopics(selected.id); await refreshCourses(selected.id); }} notify={notify} openItems={setReviewTopic} />
             <Curriculum course={selected} topics={topics} reload={async () => { await refreshTopics(selected.id); await refreshCourses(selected.id); }} notify={notify} />
           </section>}
@@ -68,6 +70,15 @@ export function CoursesView({ documents, notify }: Props) {
       {reviewTopic && selected && <StudyItemEditor course={selected} topic={reviewTopic} close={() => setReviewTopic(null)} notify={notify} />}
     </div>
   );
+}
+
+function CourseProgressPanel({ course, startStudy, notify }: { course: Course; startStudy: (courseId: string, topicId: string) => Promise<void>; notify: (message: string) => void }) {
+  const [progress, setProgress] = useState<CourseProgress | null>(null);
+  const [history, setHistory] = useState<ProgressSnapshot[]>([]);
+  useEffect(() => { Promise.all([api.courseProgress(course.id), api.courseProgressHistory(course.id)]).then(([nextProgress, nextHistory]) => { setProgress(nextProgress); setHistory(nextHistory); }).catch((error) => notify(errorText(error))); }, [course.id]);
+  if (!progress) return <section className="course-section progress-panel"><LoaderCircle className="spin centered" size={18} /></section>;
+  const chartPoints = history.map((snapshot, index) => `${(index / Math.max(1, history.length - 1)) * 100},${38 - snapshot.mastery * 34}`).join(" ");
+  return <section className="course-section progress-panel"><div className="section-heading"><div><h3><BarChart3 size={14} /> Learning progress</h3><span>Observed performance and predicted retention are shown separately</span></div></div><div className="course-progress-metrics"><div><span>Coverage</span><strong>{Math.round(progress.coverage * 100)}%</strong><small>{progress.encountered_items}/{progress.total_items} approved items reviewed</small></div><div><span>Observed mastery</span><strong>{Math.round(progress.mastery * 100)}%</strong><small>Difficulty-weighted graded results</small></div><div className="predicted"><span>Predicted retention <em>Prediction</em></span><strong>{Math.round(progress.predicted_retention * 100)}%</strong><small>Estimated recall at this moment</small></div></div>{history.length > 1 && <div className="course-history-chart"><span>Observed mastery history</span><svg viewBox="0 0 100 42" preserveAspectRatio="none" role="img" aria-label="Course mastery history"><polyline points={chartPoints} /></svg></div>}<div className="topic-progress-table"><header><span>Topic</span><span>Coverage</span><span>Mastery</span><span>Retention</span><span /></header>{progress.topics.map((topic) => <div key={topic.topic_id} className={topic.topic_id === progress.weakest_topic_id ? "weak" : ""}><strong>{topic.title}{topic.topic_id === progress.weakest_topic_id && <em>Weakest</em>}</strong><span>{Math.round(topic.coverage * 100)}%</span><span>{Math.round(topic.mastery * 100)}%</span><span title="Predicted retention">{Math.round(topic.predicted_retention * 100)}%*</span><button className="secondary-button" disabled={!topic.total_items} onClick={() => void startStudy(course.id, topic.topic_id)}><Play size={12} /> Practise</button></div>)}</div><small className="prediction-note">* Predicted from the current forgetting-curve model, not a measured test result.</small></section>;
 }
 
 function CourseSources({ course, documents, onDetach }: { course: Course; documents: Document[]; onDetach: (id: string) => void }) {

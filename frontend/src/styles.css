@@ -1027,6 +1027,33 @@ tbody tr:hover { background: #fdfdfb; }
   border-radius: 12px;
   background: linear-gradient(135deg, #f1f7f2, #fff);
 }
+.today-progress {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-bottom: 18px;
+}
+.progress-metric, .today-recommendation, .history-sparkline {
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: white;
+}
+.progress-metric { display: grid; gap: 6px; }
+.progress-metric > span { color: var(--muted); font-size: 9px; text-transform: uppercase; }
+.progress-metric em, .course-progress-metrics em { margin-left: 5px; padding: 2px 4px; border-radius: 3px; background: #eef1eb; color: #788179; font-size: 7px; font-style: normal; }
+.progress-metric > strong { font: 500 25px Georgia, serif; }
+.progress-metric > small { color: var(--muted); font-size: 8px; }
+.metric-track { height: 4px; overflow: hidden; border-radius: 4px; background: #edf0eb; }
+.metric-track i { display: block; height: 100%; background: var(--green); }
+.today-recommendation { grid-column: span 2; display: flex; align-items: center; gap: 10px; color: var(--green); }
+.today-recommendation span { flex: 1; display: grid; gap: 3px; }
+.today-recommendation small { color: var(--muted); font-size: 8px; text-transform: uppercase; }
+.today-recommendation strong { color: var(--ink); font-size: 12px; }
+.history-sparkline { display: grid; grid-template-columns: 120px 1fr; align-items: center; gap: 12px; }
+.history-sparkline span { display: flex; gap: 5px; color: var(--muted); font-size: 8px; }
+.history-sparkline svg, .course-history-chart svg { width: 100%; height: 42px; overflow: visible; }
+.history-sparkline polyline, .course-history-chart polyline { fill: none; stroke: var(--green); stroke-width: 1.7; vector-effect: non-scaling-stroke; }
 .review-summary > div { display: flex; align-items: center; gap: 10px; color: var(--green); }
 .review-summary span { display: grid; color: var(--muted); font-size: 10px; }
 .review-summary strong { color: var(--ink); font-family: Georgia, serif; font-size: 23px; font-weight: 500; }
@@ -1086,6 +1113,33 @@ tbody tr:hover { background: #fdfdfb; }
 .answer-feedback blockquote { margin: 8px 0; padding: 11px; border-left: 2px solid #9aad9f; background: white; font-size: 10px; }
 .answer-feedback blockquote strong { display: block; margin-bottom: 5px; }
 .answer-feedback .secondary-button { margin-top: 10px; }
+.retention-curve { margin: 16px 0; padding: 12px; border: 1px solid #dde3dc; border-radius: 7px; background: white; }
+.retention-curve figcaption { display: flex; gap: 14px; margin-bottom: 7px; color: var(--muted); font-size: 8px; }
+.retention-curve figcaption span { display: flex; align-items: center; gap: 5px; }
+.observed-dot { width: 7px; height: 7px; border-radius: 50%; background: #b15e47; }
+.prediction-line { width: 12px; border-top: 2px solid var(--green); }
+.retention-curve svg { width: 100%; height: 90px; overflow: visible; }
+.retention-curve .prediction { fill: none; stroke: var(--green); stroke-width: 1.7; vector-effect: non-scaling-stroke; }
+.retention-curve .observation { fill: #b15e47; vector-effect: non-scaling-stroke; }
+.retention-curve .review-marker { stroke: #9da59d; stroke-width: 1; stroke-dasharray: 2 2; vector-effect: non-scaling-stroke; }
+.retention-curve > small { color: var(--muted); font-size: 8px; }
+.progress-panel .section-heading h3 { display: flex; align-items: center; gap: 6px; }
+.course-progress-metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.course-progress-metrics > div { display: grid; gap: 4px; padding: 13px; border-radius: 8px; background: #f6f8f5; }
+.course-progress-metrics span { color: var(--muted); font-size: 8px; text-transform: uppercase; }
+.course-progress-metrics strong { font: 500 22px Georgia, serif; }
+.course-progress-metrics small { color: var(--muted); font-size: 8px; }
+.course-progress-metrics .predicted { border: 1px dashed #cfd6cd; }
+.course-history-chart { margin: 14px 0; padding: 12px; border: 1px solid #e3e7e1; border-radius: 8px; }
+.course-history-chart > span { color: var(--muted); font-size: 8px; text-transform: uppercase; }
+.topic-progress-table { margin-top: 14px; }
+.topic-progress-table > header, .topic-progress-table > div { display: grid; grid-template-columns: minmax(130px, 1fr) 70px 70px 70px 84px; align-items: center; gap: 8px; padding: 9px 7px; border-top: 1px solid #e8ebe5; font-size: 9px; }
+.topic-progress-table > header { color: var(--muted); text-transform: uppercase; }
+.topic-progress-table > div.weak { margin: 0 -7px; padding-left: 14px; padding-right: 14px; background: #fbf4ef; }
+.topic-progress-table strong { display: flex; align-items: center; gap: 5px; }
+.topic-progress-table strong em { padding: 2px 4px; border-radius: 3px; background: #efdcd3; color: #92563f; font-size: 7px; font-style: normal; font-weight: 600; text-transform: uppercase; }
+.topic-progress-table .secondary-button { margin: 0; padding: 5px 7px; }
+.prediction-note { display: block; margin-top: 9px; color: var(--muted); font-size: 8px; }
 .next-question { margin: 14px 0 0 auto; }
 .session-complete { margin-top: 80px; border-style: solid; background: white; }
 .session-complete .primary-button { margin-top: 12px; }
@@ -1136,6 +1190,11 @@ tbody tr:hover { background: #fdfdfb; }
   .topic-row { grid-template-columns: 20px minmax(80px, 1fr) auto; }
   .topic-tools { grid-column: 2 / -1; justify-content: flex-end; }
   .review-summary { grid-template-columns: 1fr; }
+  .today-progress { grid-template-columns: 1fr; }
+  .today-recommendation { grid-column: auto; }
+  .course-progress-metrics { grid-template-columns: 1fr; }
+  .topic-progress-table { overflow-x: auto; }
+  .topic-progress-table > header, .topic-progress-table > div { min-width: 570px; }
   .study-player > header { padding: 0 14px; grid-template-columns: auto 1fr; }
   .study-player > header small { display: none; }
   .question-card { padding: 22px; }

@@ -3,8 +3,11 @@ import type {
   Conversation,
   ConversationDetail,
   Course,
+  CourseProgress,
   Document,
   IngestionJob,
+  ItemProgress,
+  ProgressSnapshot,
   GenerationJob,
   StudyItem,
   ReviewAttempt,
@@ -161,6 +164,10 @@ export const api = {
   submitStudyAnswer: (sessionId: string, input: { item_id: string; submitted_answer: string; rating: ReviewRating; confidence: number; response_time_ms: number; hint_used: boolean; idempotency_key: string }) => request<ReviewAttempt>(`/study/sessions/${sessionId}/answers`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) }),
   completeStudySession: (sessionId: string) => request<StudySession>(`/study/sessions/${sessionId}/complete`, { method: "POST" }),
   overrideReview: (attemptId: string, input: { correct: boolean; score: number; reason: string }) => request<ReviewAttempt>(`/review-attempts/${attemptId}/override`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) }),
+  courseProgress: (courseId: string) => request<CourseProgress>(`/courses/${courseId}/progress`),
+  courseProgressHistory: (courseId: string) => request<ProgressSnapshot[]>(`/courses/${courseId}/progress/history`),
+  topicProgress: (topicId: string) => request<import("./types").TopicProgress>(`/topics/${topicId}/progress`),
+  itemProgress: (itemId: string) => request<ItemProgress>(`/study-items/${itemId}/progress`),
 };
 
 interface ChatOptions {
