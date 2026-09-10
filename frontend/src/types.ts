@@ -89,6 +89,29 @@ export interface IngestionJob {
   updated_at: string;
 }
 
+export interface Course {
+  id: string;
+  title: string;
+  description: string;
+  document_ids: string[];
+  topic_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Topic {
+  id: string;
+  course_id: string;
+  parent_id: string | null;
+  title: string;
+  description: string;
+  position: number;
+  state: "draft" | "approved";
+  source_chunk_ids: string[];
+  created_at: string;
+  updated_at: string;
+}
+
 export interface StreamDone {
   conversation_id: string;
   message_id: string;

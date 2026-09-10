@@ -1,5 +1,6 @@
 import {
   Database,
+  BookOpen,
   KeyRound,
   Menu,
   MessageSquare,
@@ -9,10 +10,11 @@ import {
 import { useCallback, useEffect, useState } from "react";
 import { api, setApiToken } from "./api";
 import { ChatView } from "./ChatView";
+import { CoursesView } from "./CoursesView";
 import { DocumentsView } from "./DocumentsView";
 import type { Conversation, Document } from "./types";
 
-type View = "documents" | "chat";
+type View = "documents" | "courses" | "chat";
 
 export function errorText(error: unknown) {
   return error instanceof Error ? error.message : "Something went wrong";
@@ -99,6 +101,13 @@ function App() {
         </div>
         <nav className="primary-nav" aria-label="Main navigation">
           <button
+            className={view === "courses" ? "active" : ""}
+            onClick={() => setView("courses")}
+          >
+            <BookOpen size={18} />
+            Courses
+          </button>
+          <button
             className={view === "documents" ? "active" : ""}
             onClick={() => setView("documents")}
           >
@@ -149,6 +158,8 @@ function App() {
             notify={setToast}
             startChat={() => setView("chat")}
           />
+        ) : view === "courses" ? (
+          <CoursesView documents={documents} notify={setToast} />
         ) : (
           <ChatView
             documents={documents}
