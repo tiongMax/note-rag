@@ -102,6 +102,25 @@ class ApprovalStatus(StrEnum):
     ARCHIVED = "archived"
 
 
+class StudySessionStatus(StrEnum):
+    ACTIVE = "active"
+    COMPLETED = "completed"
+
+
+class StudySessionMode(StrEnum):
+    DAILY_REVIEW = "daily_review"
+    COURSE = "course"
+    TOPIC = "topic"
+    SELECTED = "selected"
+
+
+class ReviewRating(StrEnum):
+    AGAIN = "again"
+    HARD = "hard"
+    GOOD = "good"
+    EASY = "easy"
+
+
 class Document(TimestampMixin, Base):
     __tablename__ = "documents"
     __table_args__ = (
@@ -244,6 +263,9 @@ class Course(TimestampMixin, Base):
         back_populates="course",
         cascade="all, delete-orphan",
         order_by="Topic.position",
+    )
+    study_sessions: Mapped[list["StudySession"]] = relationship(
+        back_populates="course", cascade="all, delete-orphan"
     )
 
 
@@ -388,6 +410,12 @@ class StudyItem(TimestampMixin, Base):
     sources: Mapped[list["StudyItemSource"]] = relationship(
         back_populates="study_item", cascade="all, delete-orphan"
     )
+    review_attempts: Mapped[list["ReviewAttempt"]] = relationship(
+        back_populates="study_item", cascade="all, delete-orphan"
+    )
+    memory_state: Mapped["MemoryState | None"] = relationship(
+        back_populates="study_item", cascade="all, delete-orphan", uselist=False
+    )
 
 
 class StudyItemSource(TimestampMixin, Base):
@@ -401,6 +429,142 @@ class StudyItemSource(TimestampMixin, Base):
     )
     study_item: Mapped[StudyItem] = relationship(back_populates="sources")
     chunk: Mapped[ChunkRecord] = relationship()
+
+
+class StudySession(TimestampMixin, Base):
+    __tablename__ = "study_sessions"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    course_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("courses.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    topic_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("topics.id", ondelete="SET NULL")
+    )
+    mode: Mapped[StudySessionMode] = mapped_column(
+        Enum(StudySessionMode, name="study_session_mode"), nullable=False
+    )
+    status: Mapped[StudySessionStatus] = mapped_column(
+        Enum(StudySessionStatus, name="study_session_status"),
+        default=StudySessionStatus.ACTIVE,
+        nullable=False,
+        index=True,
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    course: Mapped[Course] = relationship(back_populates="study_sessions")
+    items: Mapped[list["StudySessionItem"]] = relationship(
+        back_populates="session",
+        cascade="all, delete-orphan",
+        order_by="StudySessionItem.position",
+    )
+    attempts: Mapped[list["ReviewAttempt"]] = relationship(
+        back_populates="session", cascade="all, delete-orphan"
+    )
+
+
+class StudySessionItem(Base):
+    __tablename__ = "study_session_items"
+    __table_args__ = (
+        CheckConstraint("position >= 0", name="ck_study_session_items_position"),
+        UniqueConstraint("session_id", "position", name="uq_session_item_position"),
+    )
+
+    session_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("study_sessions.id", ondelete="CASCADE"), primary_key=True
+    )
+    study_item_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("study_items.id", ondelete="CASCADE"), primary_key=True
+    )
+    position: Mapped[int] = mapped_column(Integer, nullable=False)
+    reason: Mapped[str] = mapped_column(String(255), nullable=False)
+
+    session: Mapped[StudySession] = relationship(back_populates="items")
+    study_item: Mapped[StudyItem] = relationship()
+
+
+class ReviewAttempt(Base):
+    __tablename__ = "review_attempts"
+    __table_args__ = (
+        CheckConstraint("score >= 0 AND score <= 1", name="ck_attempt_score"),
+        CheckConstraint(
+            "confidence >= 1 AND confidence <= 5", name="ck_attempt_confidence"
+        ),
+        CheckConstraint("response_time_ms >= 0", name="ck_attempt_response_time"),
+        UniqueConstraint(
+            "session_id", "idempotency_key", name="uq_attempt_session_idempotency"
+        ),
+        Index("ix_review_attempts_item_reviewed", "study_item_id", "reviewed_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    session_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("study_sessions.id", ondelete="CASCADE"), nullable=False
+    )
+    study_item_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("study_items.id", ondelete="CASCADE"), nullable=False
+    )
+    idempotency_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    submitted_answer: Mapped[str] = mapped_column(Text, nullable=False)
+    expected_answer: Mapped[str] = mapped_column(Text, nullable=False)
+    correct: Mapped[bool] = mapped_column(nullable=False)
+    score: Mapped[float] = mapped_column(nullable=False)
+    rating: Mapped[ReviewRating] = mapped_column(
+        Enum(ReviewRating, name="review_rating"), nullable=False
+    )
+    confidence: Mapped[int] = mapped_column(Integer, nullable=False)
+    response_time_ms: Mapped[int] = mapped_column(Integer, nullable=False)
+    hint_used: Mapped[bool] = mapped_column(default=False, nullable=False)
+    grading_details: Mapped[dict[str, Any]] = mapped_column(
+        JSON, default=dict, nullable=False
+    )
+    reviewed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    overridden_correct: Mapped[bool | None] = mapped_column()
+    overridden_score: Mapped[float | None] = mapped_column()
+    override_reason: Mapped[str | None] = mapped_column(Text)
+    overridden_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    session: Mapped[StudySession] = relationship(back_populates="attempts")
+    study_item: Mapped[StudyItem] = relationship(back_populates="review_attempts")
+
+
+class MemoryState(TimestampMixin, Base):
+    __tablename__ = "memory_states"
+    __table_args__ = (
+        CheckConstraint("half_life_days > 0", name="ck_memory_half_life"),
+        CheckConstraint(
+            "difficulty >= 1 AND difficulty <= 5", name="ck_memory_difficulty"
+        ),
+        CheckConstraint(
+            "predicted_recall >= 0 AND predicted_recall <= 1",
+            name="ck_memory_predicted_recall",
+        ),
+        CheckConstraint(
+            "successful_reviews >= 0 AND failed_reviews >= 0",
+            name="ck_memory_review_counts",
+        ),
+        Index("ix_memory_states_next_review", "next_review_at"),
+    )
+
+    study_item_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("study_items.id", ondelete="CASCADE"), primary_key=True
+    )
+    half_life_days: Mapped[float] = mapped_column(nullable=False)
+    difficulty: Mapped[int] = mapped_column(Integer, nullable=False)
+    last_review_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    next_review_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    predicted_recall: Mapped[float] = mapped_column(nullable=False)
+    successful_reviews: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    failed_reviews: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    scheduler_version: Mapped[str] = mapped_column(String(64), nullable=False)
+
+    study_item: Mapped[StudyItem] = relationship(back_populates="memory_state")
 
 
 class GenerationJob(TimestampMixin, Base):
