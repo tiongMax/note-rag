@@ -112,6 +112,42 @@ export interface Topic {
   updated_at: string;
 }
 
+export interface GenerationJob {
+  id: string;
+  course_id: string;
+  topic_id: string | null;
+  item_id: string | null;
+  kind: "curriculum" | "study_items" | "study_item";
+  status: "queued" | "running" | "completed" | "failed";
+  progress: number;
+  attempts: number;
+  error_message: string | null;
+}
+
+export interface SourcePassage {
+  chunk_id: string;
+  document_id: string;
+  filename: string;
+  position: number;
+  text: string;
+}
+
+export interface StudyItem {
+  id: string;
+  topic_id: string;
+  item_type: "flashcard" | "multiple_choice" | "short_answer";
+  prompt: string;
+  answer: string;
+  explanation: string;
+  options: Array<{ text: string; correct: boolean }>;
+  difficulty: number;
+  approval_status: "draft" | "approved" | "archived";
+  generation_version: string | null;
+  sources: SourcePassage[];
+  created_at: string;
+  updated_at: string;
+}
+
 export interface StreamDone {
   conversation_id: string;
   message_id: string;
