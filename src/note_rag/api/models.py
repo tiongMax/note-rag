@@ -8,10 +8,14 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from note_rag.chunking.models import Chunk
 from note_rag.persistence import (
+    ApprovalStatus,
     ChatRole,
     DocumentStatus,
+    GenerationJobStatus,
+    GenerationKind,
     IndexingStatus,
     IngestionJobStatus,
+    StudyItemType,
     TopicState,
 )
 from note_rag.retrieval import SearchMode
@@ -102,6 +106,10 @@ class TopicUpdateRequest(BaseModel):
     state: TopicState | None = None
 
 
+class TopicMergeRequest(BaseModel):
+    target_topic_id: uuid.UUID
+
+
 class TopicResponse(BaseModel):
     id: uuid.UUID
     course_id: uuid.UUID
@@ -111,6 +119,67 @@ class TopicResponse(BaseModel):
     position: int
     state: TopicState
     source_chunk_ids: list[uuid.UUID]
+    created_at: datetime
+    updated_at: datetime
+
+
+class GenerationRequest(BaseModel):
+    idempotency_key: str | None = Field(default=None, min_length=8, max_length=128)
+
+
+class GenerationJobResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    course_id: uuid.UUID
+    topic_id: uuid.UUID | None
+    item_id: uuid.UUID | None
+    kind: GenerationKind
+    status: GenerationJobStatus
+    progress: int
+    attempts: int
+    prompt_version: str
+    model_name: str
+    error_message: str | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class StudyOptionRequest(BaseModel):
+    text: str = Field(min_length=1, max_length=1000)
+    correct: bool
+
+
+class StudyItemUpdateRequest(BaseModel):
+    prompt: str | None = Field(default=None, min_length=1, max_length=4000)
+    answer: str | None = Field(default=None, min_length=1, max_length=4000)
+    explanation: str | None = Field(default=None, min_length=1, max_length=6000)
+    difficulty: int | None = Field(default=None, ge=1, le=5)
+    options: list[StudyOptionRequest] | None = Field(default=None, max_length=8)
+    approval_status: ApprovalStatus | None = None
+
+
+class SourcePassageResponse(BaseModel):
+    chunk_id: uuid.UUID
+    document_id: uuid.UUID
+    filename: str
+    position: int
+    text: str
+
+
+class StudyItemResponse(BaseModel):
+    id: uuid.UUID
+    topic_id: uuid.UUID
+    objective_id: uuid.UUID | None
+    item_type: StudyItemType
+    prompt: str
+    answer: str
+    explanation: str
+    options: list[dict[str, Any]]
+    difficulty: int
+    approval_status: ApprovalStatus
+    generation_version: str | None
+    sources: list[SourcePassageResponse]
     created_at: datetime
     updated_at: datetime
 
