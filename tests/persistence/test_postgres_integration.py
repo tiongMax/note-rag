@@ -29,6 +29,10 @@ def test_migration_and_repository_round_trip_on_postgres() -> None:
             "course_documents",
             "topics",
             "topic_sources",
+            "learning_objectives",
+            "study_items",
+            "study_item_sources",
+            "generation_jobs",
         } <= set(inspect(connection).get_table_names())
         document = DocumentRepository(session).add(
             Document(filename="phase-2-smoke.txt", media_type="text/plain")
