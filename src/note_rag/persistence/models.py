@@ -121,6 +121,11 @@ class ReviewRating(StrEnum):
     EASY = "easy"
 
 
+class MasteryScope(StrEnum):
+    COURSE = "course"
+    TOPIC = "topic"
+
+
 class Document(TimestampMixin, Base):
     __tablename__ = "documents"
     __table_args__ = (
@@ -267,6 +272,9 @@ class Course(TimestampMixin, Base):
     study_sessions: Mapped[list["StudySession"]] = relationship(
         back_populates="course", cascade="all, delete-orphan"
     )
+    mastery_snapshots: Mapped[list["MasterySnapshot"]] = relationship(
+        back_populates="course", cascade="all, delete-orphan"
+    )
 
 
 class CourseDocument(TimestampMixin, Base):
@@ -328,6 +336,9 @@ class Topic(TimestampMixin, Base):
         order_by="LearningObjective.position",
     )
     study_items: Mapped[list["StudyItem"]] = relationship(
+        back_populates="topic", cascade="all, delete-orphan"
+    )
+    mastery_snapshots: Mapped[list["MasterySnapshot"]] = relationship(
         back_populates="topic", cascade="all, delete-orphan"
     )
 
@@ -565,6 +576,47 @@ class MemoryState(TimestampMixin, Base):
     scheduler_version: Mapped[str] = mapped_column(String(64), nullable=False)
 
     study_item: Mapped[StudyItem] = relationship(back_populates="memory_state")
+
+
+class MasterySnapshot(Base):
+    __tablename__ = "mastery_snapshots"
+    __table_args__ = (
+        CheckConstraint("coverage >= 0 AND coverage <= 1", name="ck_snapshot_coverage"),
+        CheckConstraint("mastery >= 0 AND mastery <= 1", name="ck_snapshot_mastery"),
+        CheckConstraint(
+            "predicted_retention >= 0 AND predicted_retention <= 1",
+            name="ck_snapshot_retention",
+        ),
+        CheckConstraint(
+            "encountered_items >= 0 AND total_items >= encountered_items",
+            name="ck_snapshot_item_counts",
+        ),
+        Index("ix_mastery_snapshots_course_captured", "course_id", "captured_at"),
+        Index("ix_mastery_snapshots_topic_captured", "topic_id", "captured_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    scope: Mapped[MasteryScope] = mapped_column(
+        Enum(MasteryScope, name="mastery_scope"), nullable=False
+    )
+    course_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("courses.id", ondelete="CASCADE"), nullable=False
+    )
+    topic_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("topics.id", ondelete="CASCADE")
+    )
+    coverage: Mapped[float] = mapped_column(nullable=False)
+    mastery: Mapped[float] = mapped_column(nullable=False)
+    predicted_retention: Mapped[float] = mapped_column(nullable=False)
+    encountered_items: Mapped[int] = mapped_column(Integer, nullable=False)
+    total_items: Mapped[int] = mapped_column(Integer, nullable=False)
+    factors: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    captured_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, index=True
+    )
+
+    course: Mapped[Course] = relationship(back_populates="mastery_snapshots")
+    topic: Mapped[Topic | None] = relationship(back_populates="mastery_snapshots")
 
 
 class GenerationJob(TimestampMixin, Base):

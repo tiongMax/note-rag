@@ -13,7 +13,7 @@ import { api, setApiToken } from "./api";
 import { ChatView } from "./ChatView";
 import { CoursesView } from "./CoursesView";
 import { DocumentsView } from "./DocumentsView";
-import { StudyView } from "./StudyView";
+import { ACTIVE_SESSION_KEY, StudyView } from "./StudyView";
 import type { Conversation, Document } from "./types";
 
 type View = "study" | "documents" | "courses" | "chat";
@@ -170,7 +170,7 @@ function App() {
             startChat={() => setView("chat")}
           />
         ) : view === "courses" ? (
-          <CoursesView documents={documents} notify={setToast} />
+          <CoursesView documents={documents} notify={setToast} startStudy={async (courseId, topicId) => { const session = await api.createStudySession({ course_id: courseId, topic_id: topicId }); localStorage.setItem(ACTIVE_SESSION_KEY, session.id); setView("study"); }} />
         ) : (
           <ChatView
             documents={documents}

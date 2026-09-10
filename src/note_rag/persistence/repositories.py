@@ -24,6 +24,8 @@ from note_rag.persistence.models import (
     IngestionJob,
     IngestionJobStatus,
     LearningObjective,
+    MasteryScope,
+    MasterySnapshot,
     MemoryState,
     ReviewAttempt,
     StudyItem,
@@ -226,6 +228,46 @@ class MemoryStateRepository:
         self.session.add(state)
         self.session.flush()
         return state
+
+
+class MasterySnapshotRepository:
+    def __init__(self, session: Session) -> None:
+        self.session = session
+
+    def add(self, snapshot: MasterySnapshot) -> MasterySnapshot:
+        self.session.add(snapshot)
+        self.session.flush()
+        return snapshot
+
+    def list_for_course(
+        self, course_id: uuid.UUID, *, limit: int = 365
+    ) -> list[MasterySnapshot]:
+        return list(
+            self.session.scalars(
+                select(MasterySnapshot)
+                .where(
+                    MasterySnapshot.course_id == course_id,
+                    MasterySnapshot.scope == MasteryScope.COURSE,
+                )
+                .order_by(MasterySnapshot.captured_at.desc(), MasterySnapshot.id.desc())
+                .limit(limit)
+            )
+        )[::-1]
+
+    def list_for_topic(
+        self, topic_id: uuid.UUID, *, limit: int = 365
+    ) -> list[MasterySnapshot]:
+        return list(
+            self.session.scalars(
+                select(MasterySnapshot)
+                .where(
+                    MasterySnapshot.topic_id == topic_id,
+                    MasterySnapshot.scope == MasteryScope.TOPIC,
+                )
+                .order_by(MasterySnapshot.captured_at.desc(), MasterySnapshot.id.desc())
+                .limit(limit)
+            )
+        )[::-1]
 
 
 class CourseRepository:

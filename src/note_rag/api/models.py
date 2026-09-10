@@ -278,6 +278,56 @@ class ReviewQueueResponse(BaseModel):
     items: list[ReviewQueueItemResponse]
 
 
+class ProgressSummaryResponse(BaseModel):
+    coverage: float
+    mastery: float
+    predicted_retention: float
+    encountered_items: int
+    total_items: int
+    factors: dict[str, float | int | str]
+
+
+class TopicProgressResponse(ProgressSummaryResponse):
+    topic_id: uuid.UUID
+    title: str
+
+
+class CourseProgressResponse(ProgressSummaryResponse):
+    course_id: uuid.UUID
+    title: str
+    topics: list[TopicProgressResponse]
+    weakest_topic_id: uuid.UUID | None
+    recommended_action: str
+
+
+class ProgressSnapshotResponse(ProgressSummaryResponse):
+    id: uuid.UUID
+    captured_at: datetime
+
+
+class ReviewObservationResponse(BaseModel):
+    attempt_id: uuid.UUID
+    reviewed_at: datetime
+    score: float
+    correct: bool
+    overridden: bool
+
+
+class RecallPredictionResponse(BaseModel):
+    at: datetime
+    predicted_recall: float
+
+
+class ItemProgressResponse(BaseModel):
+    study_item_id: uuid.UUID
+    prompt: str
+    mastery: float
+    factors: dict[str, float | int]
+    memory: MemoryStateResponse | None
+    observations: list[ReviewObservationResponse]
+    predictions: list[RecallPredictionResponse]
+
+
 class StoredChunkResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

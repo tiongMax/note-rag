@@ -1,0 +1,5 @@
+{"id":"bio-atp-1","topic":"Cell energy","item_type":"flashcard","prompt":"What molecule stores usable cellular energy?","answer":"ATP","source":"ATP stores usable energy in cells.","failure_tags":[]}
+{"id":"bio-atp-2","topic":"Cell energy","item_type":"multiple_choice","prompt":"Which organelle generates most ATP?","answer":"Mitochondria","source":"Mitochondria generate ATP through cellular respiration.","failure_tags":[]}
+{"id":"bio-osmosis-1","topic":"Transport","item_type":"short_answer","prompt":"Define osmosis.","answer":"Movement of water across a selectively permeable membrane","source":"Osmosis is movement of water across a selectively permeable membrane.","failure_tags":[]}
+{"id":"failure-unsupported","topic":"Cell energy","item_type":"flashcard","prompt":"Who discovered ATP?","answer":"Alexander Todd","source":"ATP stores usable energy in cells.","failure_tags":["unsupported_answer"]}
+{"id":"failure-ambiguous","topic":"Cell energy","item_type":"multiple_choice","prompt":"Which molecules carry energy?","answer":"ATP","source":"ATP stores usable energy in cells.","failure_tags":["ambiguous_answer","weak_distractors"]}

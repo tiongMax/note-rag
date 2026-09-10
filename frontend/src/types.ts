@@ -223,6 +223,49 @@ export interface ReviewAttempt {
   memory: MemoryState;
 }
 
+export interface ProgressSummary {
+  coverage: number;
+  mastery: number;
+  predicted_retention: number;
+  encountered_items: number;
+  total_items: number;
+  factors: Record<string, number | string>;
+}
+
+export interface TopicProgress extends ProgressSummary {
+  topic_id: string;
+  title: string;
+}
+
+export interface CourseProgress extends ProgressSummary {
+  course_id: string;
+  title: string;
+  topics: TopicProgress[];
+  weakest_topic_id: string | null;
+  recommended_action: string;
+}
+
+export interface ProgressSnapshot extends ProgressSummary {
+  id: string;
+  captured_at: string;
+}
+
+export interface ItemProgress {
+  study_item_id: string;
+  prompt: string;
+  mastery: number;
+  factors: Record<string, number>;
+  memory: MemoryState | null;
+  observations: Array<{
+    attempt_id: string;
+    reviewed_at: string;
+    score: number;
+    correct: boolean;
+    overridden: boolean;
+  }>;
+  predictions: Array<{ at: string; predicted_recall: number }>;
+}
+
 export interface StreamDone {
   conversation_id: string;
   message_id: string;
