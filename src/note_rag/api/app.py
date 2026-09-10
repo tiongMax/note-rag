@@ -27,6 +27,10 @@ from note_rag.api.models import (
     ContextResponse,
     ConversationDetailResponse,
     ConversationResponse,
+    CourseCreateRequest,
+    CourseDocumentsRequest,
+    CourseResponse,
+    CourseUpdateRequest,
     DocumentResponse,
     IndexingResponse,
     IngestionJobResponse,
@@ -34,6 +38,9 @@ from note_rag.api.models import (
     SearchRequest,
     SearchResponse,
     StoredChunkResponse,
+    TopicCreateRequest,
+    TopicResponse,
+    TopicUpdateRequest,
 )
 from note_rag.api.observability import MetricsRegistry, configure_logging
 from note_rag.api.settings import ApiSettings, api_settings
@@ -72,9 +79,13 @@ from note_rag.persistence import (
     ChatMessageRepository,
     ChunkRepository,
     ConversationRepository,
+    Course,
+    CourseRepository,
     Database,
     DocumentRepository,
     IngestionJobRepository,
+    Topic,
+    TopicRepository,
 )
 from note_rag.retrieval import (
     PersistentRetrievalCache,
@@ -307,6 +318,255 @@ def create_app(
             token_count=token_counter.count(request.text),
             chunks=chunker.chunk(request.text, source_id=request.source_id),
         )
+
+    def course_response(course: Course) -> CourseResponse:
+        return CourseResponse(
+            id=course.id,
+            title=course.title,
+            description=course.description,
+            document_ids=[link.document_id for link in course.document_links],
+            topic_count=len(course.topics),
+            created_at=course.created_at,
+            updated_at=course.updated_at,
+        )
+
+    def topic_response(topic: Topic) -> TopicResponse:
+        return TopicResponse(
+            id=topic.id,
+            course_id=topic.course_id,
+            parent_id=topic.parent_id,
+            title=topic.title,
+            description=topic.description,
+            position=topic.position,
+            state=topic.state,
+            source_chunk_ids=[source.chunk_id for source in topic.sources],
+            created_at=topic.created_at,
+            updated_at=topic.updated_at,
+        )
+
+    @app.post(
+        "/api/v1/courses",
+        response_model=CourseResponse,
+        status_code=201,
+        tags=["courses"],
+    )
+    def create_course(request: CourseCreateRequest) -> CourseResponse:
+        title = request.title.strip()
+        if not title:
+            raise HTTPException(status_code=422, detail="course title cannot be blank")
+        with resolved_database.session() as session:
+            course = CourseRepository(session).add(
+                Course(title=title, description=request.description.strip())
+            )
+            return course_response(course)
+
+    @app.get("/api/v1/courses", response_model=list[CourseResponse], tags=["courses"])
+    def list_courses() -> list[CourseResponse]:
+        with resolved_database.session() as session:
+            return [
+                course_response(course) for course in CourseRepository(session).list()
+            ]
+
+    @app.get(
+        "/api/v1/courses/{course_id}", response_model=CourseResponse, tags=["courses"]
+    )
+    def get_course(course_id: uuid.UUID) -> CourseResponse:
+        with resolved_database.session() as session:
+            course = CourseRepository(session).get(course_id)
+            if course is None:
+                raise HTTPException(status_code=404, detail="course not found")
+            return course_response(course)
+
+    @app.patch(
+        "/api/v1/courses/{course_id}", response_model=CourseResponse, tags=["courses"]
+    )
+    def update_course(
+        course_id: uuid.UUID, request: CourseUpdateRequest
+    ) -> CourseResponse:
+        with resolved_database.session() as session:
+            course = CourseRepository(session).get(course_id)
+            if course is None:
+                raise HTTPException(status_code=404, detail="course not found")
+            if request.title is not None:
+                title = request.title.strip()
+                if not title:
+                    raise HTTPException(
+                        status_code=422, detail="course title cannot be blank"
+                    )
+                course.title = title
+            if request.description is not None:
+                course.description = request.description.strip()
+            session.flush()
+            return course_response(course)
+
+    @app.delete("/api/v1/courses/{course_id}", status_code=204, tags=["courses"])
+    def delete_course(course_id: uuid.UUID) -> Response:
+        with resolved_database.session() as session:
+            repository = CourseRepository(session)
+            course = repository.get(course_id)
+            if course is None:
+                raise HTTPException(status_code=404, detail="course not found")
+            repository.delete(course)
+        return Response(status_code=204)
+
+    @app.post(
+        "/api/v1/courses/{course_id}/documents",
+        response_model=CourseResponse,
+        tags=["courses"],
+    )
+    def attach_course_documents(
+        course_id: uuid.UUID, request: CourseDocumentsRequest
+    ) -> CourseResponse:
+        with resolved_database.session() as session:
+            repository = CourseRepository(session)
+            course = repository.get(course_id)
+            if course is None:
+                raise HTTPException(status_code=404, detail="course not found")
+            documents = []
+            missing = []
+            document_repository = DocumentRepository(session)
+            for document_id in request.document_ids:
+                document = document_repository.get(document_id)
+                if document is None:
+                    missing.append(str(document_id))
+                else:
+                    documents.append(document)
+            if missing:
+                raise HTTPException(
+                    status_code=404, detail=f"documents not found: {', '.join(missing)}"
+                )
+            for document in documents:
+                repository.attach_document(course, document)
+            return course_response(course)
+
+    @app.delete(
+        "/api/v1/courses/{course_id}/documents/{document_id}",
+        status_code=204,
+        tags=["courses"],
+    )
+    def detach_course_document(
+        course_id: uuid.UUID, document_id: uuid.UUID
+    ) -> Response:
+        with resolved_database.session() as session:
+            repository = CourseRepository(session)
+            if repository.get(course_id) is None:
+                raise HTTPException(status_code=404, detail="course not found")
+            if not repository.detach_document(course_id, document_id):
+                raise HTTPException(
+                    status_code=404, detail="document is not attached to this course"
+                )
+        return Response(status_code=204)
+
+    @app.get(
+        "/api/v1/courses/{course_id}/topics",
+        response_model=list[TopicResponse],
+        tags=["topics"],
+    )
+    def list_topics(course_id: uuid.UUID) -> list[TopicResponse]:
+        with resolved_database.session() as session:
+            if CourseRepository(session).get(course_id) is None:
+                raise HTTPException(status_code=404, detail="course not found")
+            return [
+                topic_response(topic)
+                for topic in TopicRepository(session).list_for_course(course_id)
+            ]
+
+    @app.post(
+        "/api/v1/courses/{course_id}/topics",
+        response_model=TopicResponse,
+        status_code=201,
+        tags=["topics"],
+    )
+    def create_topic(
+        course_id: uuid.UUID, request: TopicCreateRequest
+    ) -> TopicResponse:
+        title = request.title.strip()
+        if not title:
+            raise HTTPException(status_code=422, detail="topic title cannot be blank")
+        with resolved_database.session() as session:
+            course = CourseRepository(session).get(course_id)
+            if course is None:
+                raise HTTPException(status_code=404, detail="course not found")
+            repository = TopicRepository(session)
+            parent = repository.get(request.parent_id) if request.parent_id else None
+            if request.parent_id and parent is None:
+                raise HTTPException(status_code=404, detail="parent topic not found")
+            try:
+                topic = repository.add(
+                    course,
+                    title=title,
+                    description=request.description.strip(),
+                    parent=parent,
+                    state=request.state,
+                    position=request.position,
+                )
+                for chunk_id in request.source_chunk_ids:
+                    chunk = ChunkRepository(session).get(chunk_id)
+                    if chunk is None:
+                        raise HTTPException(
+                            status_code=404,
+                            detail=f"source chunk not found: {chunk_id}",
+                        )
+                    repository.add_source(topic, chunk)
+            except ValueError as error:
+                raise HTTPException(status_code=422, detail=str(error)) from error
+            return topic_response(topic)
+
+    @app.patch(
+        "/api/v1/courses/{course_id}/topics/{topic_id}",
+        response_model=TopicResponse,
+        tags=["topics"],
+    )
+    def update_topic(
+        course_id: uuid.UUID, topic_id: uuid.UUID, request: TopicUpdateRequest
+    ) -> TopicResponse:
+        with resolved_database.session() as session:
+            repository = TopicRepository(session)
+            topic = repository.get(topic_id)
+            if topic is None or topic.course_id != course_id:
+                raise HTTPException(status_code=404, detail="topic not found")
+            parent: Topic | None | object = ...
+            if "parent_id" in request.model_fields_set:
+                parent = (
+                    repository.get(request.parent_id) if request.parent_id else None
+                )
+                if request.parent_id and parent is None:
+                    raise HTTPException(
+                        status_code=404, detail="parent topic not found"
+                    )
+            title = request.title.strip() if request.title is not None else None
+            if request.title is not None and not title:
+                raise HTTPException(
+                    status_code=422, detail="topic title cannot be blank"
+                )
+            try:
+                repository.update(
+                    topic,
+                    title=title,
+                    description=request.description.strip()
+                    if request.description is not None
+                    else None,
+                    state=request.state,
+                    parent=parent,
+                    position=request.position,
+                )
+            except ValueError as error:
+                raise HTTPException(status_code=422, detail=str(error)) from error
+            return topic_response(topic)
+
+    @app.delete(
+        "/api/v1/courses/{course_id}/topics/{topic_id}",
+        status_code=204,
+        tags=["topics"],
+    )
+    def delete_topic(course_id: uuid.UUID, topic_id: uuid.UUID) -> Response:
+        with resolved_database.session() as session:
+            repository = TopicRepository(session)
+            topic = repository.get(topic_id)
+            if topic is None or topic.course_id != course_id:
+                raise HTTPException(status_code=404, detail="topic not found")
+            repository.delete(topic)
+        return Response(status_code=204)
 
     @app.post(
         "/api/v1/documents",
