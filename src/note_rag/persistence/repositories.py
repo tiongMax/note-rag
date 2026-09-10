@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from note_rag.chunking import Chunk
 from note_rag.persistence.models import (
+    ApprovalStatus,
     ChatMessageRecord,
     ChatRole,
     ChunkRecord,
@@ -18,12 +19,120 @@ from note_rag.persistence.models import (
     Course,
     CourseDocument,
     Document,
+    GenerationJob,
+    GenerationJobStatus,
     IngestionJob,
     IngestionJobStatus,
+    LearningObjective,
+    StudyItem,
+    StudyItemSource,
     Topic,
     TopicSource,
     TopicState,
 )
+
+
+class GenerationJobRepository:
+    def __init__(self, session: Session) -> None:
+        self.session = session
+
+    def add(self, job: GenerationJob) -> GenerationJob:
+        existing = self.session.scalar(
+            select(GenerationJob).where(
+                GenerationJob.idempotency_key == job.idempotency_key
+            )
+        )
+        if existing is not None:
+            return existing
+        self.session.add(job)
+        self.session.flush()
+        return job
+
+    def get(self, job_id: uuid.UUID) -> GenerationJob | None:
+        return self.session.get(GenerationJob, job_id)
+
+    def claim_next(self) -> GenerationJob | None:
+        statement = (
+            select(GenerationJob)
+            .where(GenerationJob.status == GenerationJobStatus.QUEUED)
+            .order_by(GenerationJob.created_at, GenerationJob.id)
+        )
+        if (
+            self.session.bind is not None
+            and self.session.bind.dialect.name == "postgresql"
+        ):
+            statement = statement.with_for_update(skip_locked=True)
+        job = self.session.scalar(statement.limit(1))
+        if job is not None:
+            job.status = GenerationJobStatus.RUNNING
+            job.progress = 10
+            job.attempts += 1
+            job.started_at = datetime.now(UTC)
+            self.session.flush()
+        return job
+
+    def claim(self, job_id: uuid.UUID) -> GenerationJob | None:
+        job = self.get(job_id)
+        if job is None or job.status is not GenerationJobStatus.QUEUED:
+            return None
+        job.status = GenerationJobStatus.RUNNING
+        job.progress = 10
+        job.attempts += 1
+        job.started_at = datetime.now(UTC)
+        self.session.flush()
+        return job
+
+    def complete(self, job: GenerationJob) -> None:
+        job.status = GenerationJobStatus.COMPLETED
+        job.progress = 100
+        job.error_message = None
+        job.finished_at = datetime.now(UTC)
+        self.session.flush()
+
+    def fail(self, job: GenerationJob, message: str, *, retry: bool) -> None:
+        job.status = GenerationJobStatus.QUEUED if retry else GenerationJobStatus.FAILED
+        job.progress = 0 if retry else job.progress
+        job.error_message = message
+        if not retry:
+            job.finished_at = datetime.now(UTC)
+        self.session.flush()
+
+
+class StudyItemRepository:
+    def __init__(self, session: Session) -> None:
+        self.session = session
+
+    def get(self, item_id: uuid.UUID) -> StudyItem | None:
+        return self.session.get(StudyItem, item_id)
+
+    def list_for_topic(
+        self, topic_id: uuid.UUID, *, include_archived: bool = False
+    ) -> list[StudyItem]:
+        statement = select(StudyItem).where(StudyItem.topic_id == topic_id)
+        if not include_archived:
+            statement = statement.where(
+                StudyItem.approval_status != ApprovalStatus.ARCHIVED
+            )
+        return list(
+            self.session.scalars(statement.order_by(StudyItem.created_at, StudyItem.id))
+        )
+
+    def add(self, item: StudyItem, chunk_ids: list[uuid.UUID]) -> StudyItem:
+        self.session.add(item)
+        self.session.flush()
+        self.session.add_all(
+            [
+                StudyItemSource(study_item=item, chunk_id=chunk_id)
+                for chunk_id in dict.fromkeys(chunk_ids)
+            ]
+        )
+        self.session.flush()
+        return item
+
+    def add_objective(self, objective: LearningObjective) -> LearningObjective:
+        self.session.add(objective)
+        self.session.flush()
+        return objective
 
 
 class CourseRepository:

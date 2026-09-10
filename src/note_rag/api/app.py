@@ -1,9 +1,11 @@
 """FastAPI application factory."""
 
+import hashlib
 import json
 import threading
 import uuid
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 from pathlib import Path
 
 from fastapi import FastAPI, File, HTTPException, Response, UploadFile, status
@@ -32,13 +34,19 @@ from note_rag.api.models import (
     CourseResponse,
     CourseUpdateRequest,
     DocumentResponse,
+    GenerationJobResponse,
+    GenerationRequest,
     IndexingResponse,
     IngestionJobResponse,
     IngestionResponse,
     SearchRequest,
     SearchResponse,
+    SourcePassageResponse,
     StoredChunkResponse,
+    StudyItemResponse,
+    StudyItemUpdateRequest,
     TopicCreateRequest,
+    TopicMergeRequest,
     TopicResponse,
     TopicUpdateRequest,
 )
@@ -68,6 +76,11 @@ from note_rag.embeddings import (
     IndexingService,
     QueryEmbeddingProvider,
 )
+from note_rag.generation import (
+    PROMPT_VERSION,
+    GenerationWorker,
+    LearningMaterialService,
+)
 from note_rag.ingest import (
     IngestionPipeline,
     IngestionWorker,
@@ -76,6 +89,7 @@ from note_rag.ingest import (
 )
 from note_rag.ingest.errors import UnsupportedDocumentTypeError
 from note_rag.persistence import (
+    ApprovalStatus,
     ChatMessageRepository,
     ChunkRepository,
     ConversationRepository,
@@ -83,9 +97,16 @@ from note_rag.persistence import (
     CourseRepository,
     Database,
     DocumentRepository,
+    GenerationJob,
+    GenerationJobRepository,
+    GenerationJobStatus,
+    GenerationKind,
     IngestionJobRepository,
+    StudyItem,
+    StudyItemRepository,
     Topic,
     TopicRepository,
+    TopicState,
 )
 from note_rag.retrieval import (
     PersistentRetrievalCache,
@@ -179,6 +200,15 @@ def create_app(
         history_max_messages=app_settings.chat_history_max_messages,
         history_max_tokens=app_settings.chat_history_max_tokens,
     )
+    learning_material_service = LearningMaterialService(
+        resolved_database, resolved_chat_provider
+    )
+    generation_worker = GenerationWorker(
+        resolved_database,
+        learning_material_service,
+        max_attempts=app_settings.worker_max_attempts,
+        poll_interval=app_settings.worker_poll_interval_seconds,
+    )
     chunker_class: type[TokenChunker] | type[RecursiveChunker] = (
         RecursiveChunker
         if app_settings.chunking_strategy == "recursive"
@@ -204,25 +234,35 @@ def create_app(
         lease_timeout_seconds=app_settings.worker_lease_timeout_seconds,
     )
     stop_event = threading.Event()
-    worker_thread: threading.Thread | None = None
+    worker_threads: list[threading.Thread] = []
 
     @asynccontextmanager
     async def lifespan(application: FastAPI):
-        nonlocal worker_thread
         if app_settings.background_worker_enabled:
-            worker_thread = threading.Thread(
-                target=ingestion_worker.run_forever,
-                args=(stop_event,),
-                name="note-rag-ingestion-worker",
-                daemon=True,
+            worker_threads.extend(
+                [
+                    threading.Thread(
+                        target=ingestion_worker.run_forever,
+                        args=(stop_event,),
+                        name="note-rag-ingestion-worker",
+                        daemon=True,
+                    ),
+                    threading.Thread(
+                        target=generation_worker.run_forever,
+                        args=(stop_event,),
+                        name="note-rag-generation-worker",
+                        daemon=True,
+                    ),
+                ]
             )
-            worker_thread.start()
-            application.state.worker_thread = worker_thread
+            for worker_thread in worker_threads:
+                worker_thread.start()
+            application.state.worker_threads = worker_threads
         try:
             yield
         finally:
             stop_event.set()
-            if worker_thread is not None:
+            for worker_thread in worker_threads:
                 worker_thread.join(timeout=5)
             if owns_database:
                 resolved_database.dispose()
@@ -239,6 +279,7 @@ def create_app(
     )
     app.state.database = resolved_database
     app.state.ingestion_worker = ingestion_worker
+    app.state.generation_worker = generation_worker
     app.state.metrics = metrics
     app.state.retrieval_cache = retrieval_cache
     install_error_handlers(app)
@@ -252,7 +293,7 @@ def create_app(
             CORSMiddleware,
             allow_origins=list(app_settings.allowed_origins),
             allow_credentials=False,
-            allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
+            allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
             allow_headers=[
                 "Authorization",
                 "Content-Type",
@@ -471,6 +512,29 @@ def create_app(
                 for topic in TopicRepository(session).list_for_course(course_id)
             ]
 
+    @app.get(
+        "/api/v1/courses/{course_id}/topics/{topic_id}/sources",
+        response_model=list[SourcePassageResponse],
+        tags=["topics"],
+    )
+    def list_topic_sources(
+        course_id: uuid.UUID, topic_id: uuid.UUID
+    ) -> list[SourcePassageResponse]:
+        with resolved_database.session() as session:
+            topic = TopicRepository(session).get(topic_id)
+            if topic is None or topic.course_id != course_id:
+                raise HTTPException(status_code=404, detail="topic not found")
+            return [
+                SourcePassageResponse(
+                    chunk_id=link.chunk.id,
+                    document_id=link.chunk.document_id,
+                    filename=link.chunk.document.filename,
+                    position=link.chunk.position,
+                    text=link.chunk.text,
+                )
+                for link in topic.sources
+            ]
+
     @app.post(
         "/api/v1/courses/{course_id}/topics",
         response_model=TopicResponse,
@@ -567,6 +631,253 @@ def create_app(
                 raise HTTPException(status_code=404, detail="topic not found")
             repository.delete(topic)
         return Response(status_code=204)
+
+    def generation_job_response(job_id: uuid.UUID) -> GenerationJobResponse:
+        with resolved_database.session() as session:
+            job = GenerationJobRepository(session).get(job_id)
+            if job is None:
+                raise HTTPException(status_code=404, detail="generation job not found")
+            return GenerationJobResponse.model_validate(job)
+
+    def enqueue_generation(
+        *,
+        course_id: uuid.UUID,
+        kind: GenerationKind,
+        idempotency_key: str | None,
+        topic_id: uuid.UUID | None = None,
+        item_id: uuid.UUID | None = None,
+    ) -> GenerationJobResponse:
+        with resolved_database.session() as session:
+            job = GenerationJobRepository(session).add(
+                GenerationJob(
+                    course_id=course_id,
+                    topic_id=topic_id,
+                    item_id=item_id,
+                    kind=kind,
+                    status=GenerationJobStatus.QUEUED,
+                    idempotency_key=idempotency_key or uuid.uuid4().hex,
+                    prompt_version=PROMPT_VERSION,
+                    model_name=resolved_chat_provider.model_name,
+                )
+            )
+            job_id = job.id
+            existing_status = job.status
+        if (
+            not app_settings.background_worker_enabled
+            and existing_status is GenerationJobStatus.QUEUED
+        ):
+            for _ in range(app_settings.worker_max_attempts):
+                generation_worker.run_job(job_id)
+                result = generation_job_response(job_id)
+                if result.status in {
+                    GenerationJobStatus.COMPLETED,
+                    GenerationJobStatus.FAILED,
+                }:
+                    return result
+        return generation_job_response(job_id)
+
+    @app.post(
+        "/api/v1/courses/{course_id}/generate-curriculum",
+        response_model=GenerationJobResponse,
+        status_code=202,
+        tags=["generation"],
+    )
+    def generate_curriculum(
+        course_id: uuid.UUID, request: GenerationRequest
+    ) -> GenerationJobResponse:
+        with resolved_database.session() as session:
+            if CourseRepository(session).get(course_id) is None:
+                raise HTTPException(status_code=404, detail="course not found")
+        return enqueue_generation(
+            course_id=course_id,
+            kind=GenerationKind.CURRICULUM,
+            idempotency_key=request.idempotency_key,
+        )
+
+    @app.get(
+        "/api/v1/generation-jobs/{job_id}",
+        response_model=GenerationJobResponse,
+        tags=["generation"],
+    )
+    def get_generation_job(job_id: uuid.UUID) -> GenerationJobResponse:
+        return generation_job_response(job_id)
+
+    @app.post(
+        "/api/v1/courses/{course_id}/topics/{topic_id}/generate-items",
+        response_model=GenerationJobResponse,
+        status_code=202,
+        tags=["generation"],
+    )
+    def generate_topic_items(
+        course_id: uuid.UUID,
+        topic_id: uuid.UUID,
+        request: GenerationRequest,
+    ) -> GenerationJobResponse:
+        with resolved_database.session() as session:
+            topic = TopicRepository(session).get(topic_id)
+            if topic is None or topic.course_id != course_id:
+                raise HTTPException(status_code=404, detail="topic not found")
+        return enqueue_generation(
+            course_id=course_id,
+            topic_id=topic_id,
+            kind=GenerationKind.STUDY_ITEMS,
+            idempotency_key=request.idempotency_key,
+        )
+
+    def study_item_response(item: StudyItem) -> StudyItemResponse:
+        return StudyItemResponse(
+            id=item.id,
+            topic_id=item.topic_id,
+            objective_id=item.objective_id,
+            item_type=item.item_type,
+            prompt=item.prompt,
+            answer=item.answer,
+            explanation=item.explanation,
+            options=item.options,
+            difficulty=item.difficulty,
+            approval_status=item.approval_status,
+            generation_version=item.generation_version,
+            sources=[
+                SourcePassageResponse(
+                    chunk_id=source.chunk.id,
+                    document_id=source.chunk.document_id,
+                    filename=source.chunk.document.filename,
+                    position=source.chunk.position,
+                    text=source.chunk.text,
+                )
+                for source in item.sources
+            ],
+            created_at=item.created_at,
+            updated_at=item.updated_at,
+        )
+
+    @app.get(
+        "/api/v1/courses/{course_id}/topics/{topic_id}/study-items",
+        response_model=list[StudyItemResponse],
+        tags=["study-items"],
+    )
+    def list_study_items(
+        course_id: uuid.UUID, topic_id: uuid.UUID
+    ) -> list[StudyItemResponse]:
+        with resolved_database.session() as session:
+            topic = TopicRepository(session).get(topic_id)
+            if topic is None or topic.course_id != course_id:
+                raise HTTPException(status_code=404, detail="topic not found")
+            return [
+                study_item_response(item)
+                for item in StudyItemRepository(session).list_for_topic(topic_id)
+            ]
+
+    @app.patch(
+        "/api/v1/study-items/{item_id}",
+        response_model=StudyItemResponse,
+        tags=["study-items"],
+    )
+    def update_study_item(
+        item_id: uuid.UUID, request: StudyItemUpdateRequest
+    ) -> StudyItemResponse:
+        with resolved_database.session() as session:
+            item = StudyItemRepository(session).get(item_id)
+            if item is None:
+                raise HTTPException(status_code=404, detail="study item not found")
+            for field in ("prompt", "answer", "explanation"):
+                value = getattr(request, field)
+                if value is not None:
+                    setattr(item, field, value.strip())
+            if request.difficulty is not None:
+                item.difficulty = request.difficulty
+            if request.options is not None:
+                options = [option.model_dump() for option in request.options]
+                if (
+                    item.item_type.value == "multiple_choice"
+                    and sum(option["correct"] for option in options) != 1
+                ):
+                    raise HTTPException(
+                        status_code=422,
+                        detail="multiple-choice items require one correct option",
+                    )
+                item.options = options
+            if request.approval_status is not None:
+                item.approval_status = request.approval_status
+                item.archived_at = (
+                    datetime.now(UTC)
+                    if request.approval_status is ApprovalStatus.ARCHIVED
+                    else None
+                )
+            item.fingerprint = hashlib.sha256(
+                " ".join(item.prompt.casefold().split()).encode()
+            ).hexdigest()
+            session.flush()
+            return study_item_response(item)
+
+    @app.delete("/api/v1/study-items/{item_id}", status_code=204, tags=["study-items"])
+    def archive_study_item(item_id: uuid.UUID) -> Response:
+        with resolved_database.session() as session:
+            item = StudyItemRepository(session).get(item_id)
+            if item is None:
+                raise HTTPException(status_code=404, detail="study item not found")
+            item.approval_status = ApprovalStatus.ARCHIVED
+            item.archived_at = datetime.now(UTC)
+        return Response(status_code=204)
+
+    @app.post(
+        "/api/v1/study-items/{item_id}/regenerate",
+        response_model=GenerationJobResponse,
+        status_code=202,
+        tags=["generation"],
+    )
+    def regenerate_study_item(
+        item_id: uuid.UUID, request: GenerationRequest
+    ) -> GenerationJobResponse:
+        with resolved_database.session() as session:
+            item = StudyItemRepository(session).get(item_id)
+            if item is None:
+                raise HTTPException(status_code=404, detail="study item not found")
+            course_id = item.topic.course_id
+        return enqueue_generation(
+            course_id=course_id,
+            topic_id=item.topic_id,
+            item_id=item.id,
+            kind=GenerationKind.STUDY_ITEM,
+            idempotency_key=request.idempotency_key,
+        )
+
+    @app.post(
+        "/api/v1/courses/{course_id}/topics/{topic_id}/merge",
+        response_model=TopicResponse,
+        tags=["topics"],
+    )
+    def merge_topic(
+        course_id: uuid.UUID, topic_id: uuid.UUID, request: TopicMergeRequest
+    ) -> TopicResponse:
+        with resolved_database.session() as session:
+            repository = TopicRepository(session)
+            source = repository.get(topic_id)
+            target = repository.get(request.target_topic_id)
+            if (
+                source is None
+                or target is None
+                or source.course_id != course_id
+                or target.course_id != course_id
+                or source.id == target.id
+            ):
+                raise HTTPException(status_code=422, detail="merge topics are invalid")
+            if source.state is TopicState.APPROVED:
+                raise HTTPException(
+                    status_code=409, detail="approved topics cannot be merged"
+                )
+            known_chunks = {link.chunk_id for link in target.sources}
+            for link in source.sources:
+                if link.chunk_id not in known_chunks:
+                    repository.add_source(target, link.chunk)
+            for objective in source.objectives:
+                objective.topic = target
+                objective.position = len(target.objectives)
+            for item in source.study_items:
+                item.topic = target
+            repository.delete(source)
+            session.flush()
+            return topic_response(target)
 
     @app.post(
         "/api/v1/documents",

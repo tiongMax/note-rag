@@ -77,6 +77,31 @@ class TopicState(StrEnum):
     APPROVED = "approved"
 
 
+class GenerationJobStatus(StrEnum):
+    QUEUED = "queued"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
+class GenerationKind(StrEnum):
+    CURRICULUM = "curriculum"
+    STUDY_ITEMS = "study_items"
+    STUDY_ITEM = "study_item"
+
+
+class StudyItemType(StrEnum):
+    FLASHCARD = "flashcard"
+    MULTIPLE_CHOICE = "multiple_choice"
+    SHORT_ANSWER = "short_answer"
+
+
+class ApprovalStatus(StrEnum):
+    DRAFT = "draft"
+    APPROVED = "approved"
+    ARCHIVED = "archived"
+
+
 class Document(TimestampMixin, Base):
     __tablename__ = "documents"
     __table_args__ = (
@@ -275,6 +300,14 @@ class Topic(TimestampMixin, Base):
     sources: Mapped[list["TopicSource"]] = relationship(
         back_populates="topic", cascade="all, delete-orphan"
     )
+    objectives: Mapped[list["LearningObjective"]] = relationship(
+        back_populates="topic",
+        cascade="all, delete-orphan",
+        order_by="LearningObjective.position",
+    )
+    study_items: Mapped[list["StudyItem"]] = relationship(
+        back_populates="topic", cascade="all, delete-orphan"
+    )
 
 
 class TopicSource(TimestampMixin, Base):
@@ -289,6 +322,125 @@ class TopicSource(TimestampMixin, Base):
 
     topic: Mapped[Topic] = relationship(back_populates="sources")
     chunk: Mapped[ChunkRecord] = relationship(back_populates="topic_links")
+
+
+class LearningObjective(TimestampMixin, Base):
+    __tablename__ = "learning_objectives"
+    __table_args__ = (
+        CheckConstraint("position >= 0", name="ck_learning_objectives_position"),
+        UniqueConstraint(
+            "topic_id", "position", name="uq_learning_objectives_topic_position"
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    topic_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("topics.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    position: Mapped[int] = mapped_column(Integer, nullable=False)
+    generation_version: Mapped[str | None] = mapped_column(String(128))
+
+    topic: Mapped[Topic] = relationship(back_populates="objectives")
+    study_items: Mapped[list["StudyItem"]] = relationship(back_populates="objective")
+
+
+class StudyItem(TimestampMixin, Base):
+    __tablename__ = "study_items"
+    __table_args__ = (
+        CheckConstraint(
+            "difficulty >= 1 AND difficulty <= 5", name="ck_study_items_difficulty"
+        ),
+        Index("ix_study_items_topic_status", "topic_id", "approval_status"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    topic_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("topics.id", ondelete="CASCADE"), nullable=False
+    )
+    objective_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("learning_objectives.id", ondelete="SET NULL")
+    )
+    item_type: Mapped[StudyItemType] = mapped_column(
+        Enum(StudyItemType, name="study_item_type"), nullable=False
+    )
+    prompt: Mapped[str] = mapped_column(Text, nullable=False)
+    answer: Mapped[str] = mapped_column(Text, nullable=False)
+    explanation: Mapped[str] = mapped_column(Text, nullable=False)
+    options: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSON, default=list, nullable=False
+    )
+    difficulty: Mapped[int] = mapped_column(Integer, default=3, nullable=False)
+    approval_status: Mapped[ApprovalStatus] = mapped_column(
+        Enum(ApprovalStatus, name="approval_status"),
+        default=ApprovalStatus.DRAFT,
+        nullable=False,
+    )
+    generation_version: Mapped[str | None] = mapped_column(String(128))
+    fingerprint: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    topic: Mapped[Topic] = relationship(back_populates="study_items")
+    objective: Mapped[LearningObjective | None] = relationship(
+        back_populates="study_items"
+    )
+    sources: Mapped[list["StudyItemSource"]] = relationship(
+        back_populates="study_item", cascade="all, delete-orphan"
+    )
+
+
+class StudyItemSource(TimestampMixin, Base):
+    __tablename__ = "study_item_sources"
+
+    study_item_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("study_items.id", ondelete="CASCADE"), primary_key=True
+    )
+    chunk_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("chunks.id", ondelete="CASCADE"), primary_key=True
+    )
+    study_item: Mapped[StudyItem] = relationship(back_populates="sources")
+    chunk: Mapped[ChunkRecord] = relationship()
+
+
+class GenerationJob(TimestampMixin, Base):
+    __tablename__ = "generation_jobs"
+    __table_args__ = (
+        CheckConstraint(
+            "progress >= 0 AND progress <= 100", name="ck_generation_jobs_progress"
+        ),
+        CheckConstraint("attempts >= 0", name="ck_generation_jobs_attempts"),
+        UniqueConstraint("idempotency_key", name="uq_generation_jobs_idempotency_key"),
+        Index("ix_generation_jobs_status_created", "status", "created_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    course_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("courses.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    topic_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("topics.id", ondelete="CASCADE")
+    )
+    item_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("study_items.id", ondelete="SET NULL")
+    )
+    kind: Mapped[GenerationKind] = mapped_column(
+        Enum(GenerationKind, name="generation_kind"), nullable=False
+    )
+    status: Mapped[GenerationJobStatus] = mapped_column(
+        Enum(GenerationJobStatus, name="generation_job_status"),
+        default=GenerationJobStatus.QUEUED,
+        nullable=False,
+        index=True,
+    )
+    progress: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    attempts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    idempotency_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    prompt_version: Mapped[str] = mapped_column(String(128), nullable=False)
+    model_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    error_message: Mapped[str | None] = mapped_column(Text)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class IngestionJob(TimestampMixin, Base):

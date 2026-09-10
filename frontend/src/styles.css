@@ -558,6 +558,43 @@ tbody tr:hover { background: #fdfdfb; }
 .modal-card .primary-button { width: fit-content; }
 .document-picker { max-height: 280px; overflow-y: auto; display: grid; gap: 4px; }
 .document-picker label { display: flex; align-items: center; gap: 9px; padding: 9px; border-radius: 6px; background: #f7f7f3; font-size: 11px; cursor: pointer; }
+.compact { padding: 7px 10px; font-size: 10px; }
+.generation-panel { background: linear-gradient(135deg, #fbfdfb, #f4f8f5); }
+.generation-status { margin: 0 0 13px; padding: 10px; border-radius: 7px; color: var(--green); background: white; font-size: 10px; }
+.generation-status.failed { color: #a5413c; background: #faeae8; }
+.generation-status .progress-track { margin-top: 7px; }
+.review-topic-list { display: grid; gap: 4px; }
+.review-topic-list > button { width: 100%; display: flex; align-items: center; justify-content: space-between; padding: 9px 10px; border: 1px solid #e5e7e1; border-radius: 7px; color: #62665e; background: white; cursor: pointer; text-align: left; }
+.review-topic-list > button:hover { border-color: #b8c7be; color: var(--green); }
+.review-topic-list > button span { display: grid; gap: 3px; }
+.review-topic-list strong { font-size: 11px; }
+.review-topic-list small { color: var(--muted); font-size: 9px; text-transform: capitalize; }
+.review-overlay { display: flex; justify-content: flex-end; }
+.review-drawer { width: min(720px, 96vw); height: 100%; overflow-y: auto; padding: 25px; background: #f7f7f3; box-shadow: -12px 0 40px rgba(0, 0, 0, .13); }
+.review-drawer > header { display: flex; align-items: flex-start; justify-content: space-between; padding-bottom: 20px; border-bottom: 1px solid var(--line); }
+.review-drawer > header h2 { margin-bottom: 6px; font-family: Georgia, serif; font-size: 26px; font-weight: 500; }
+.review-drawer > header p { margin: 0; color: var(--muted); font-size: 11px; }
+.review-toolbar { display: flex; align-items: center; justify-content: space-between; padding: 16px 0; color: var(--muted); font-size: 10px; }
+.review-empty { margin: 70px auto; max-width: 380px; color: var(--muted); font-size: 12px; line-height: 1.7; text-align: center; }
+.study-item-list { display: grid; gap: 13px; }
+.topic-source-review { margin: 0 0 14px; padding: 12px; border: 1px solid #dfe5df; border-radius: 8px; color: var(--green); background: #fbfdfb; font-size: 10px; }
+.topic-source-review summary { cursor: pointer; font-weight: 650; }
+.topic-source-review blockquote { display: grid; gap: 6px; margin: 9px 0 0; padding: 10px; border-left: 2px solid #9db2a6; color: #555951; background: white; font: 11px/1.6 Georgia, serif; }
+.study-item-card { padding: 18px; border: 1px solid var(--line); border-radius: 10px; background: white; }
+.item-meta { display: flex; align-items: center; gap: 7px; margin-bottom: 14px; color: var(--muted); font-size: 9px; text-transform: capitalize; }
+.study-item-card > label { display: grid; gap: 5px; margin-top: 10px; color: #74776f; font-size: 9px; font-weight: 700; text-transform: uppercase; }
+.study-item-card textarea { width: 100%; padding: 9px; resize: vertical; border: 1px solid #e0e2dc; border-radius: 6px; color: #40433d; background: #fdfdfb; font: 12px/1.5 inherit; outline: none; text-transform: none; }
+.study-item-card textarea:focus { border-color: #95aa9e; }
+.option-preview { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px; margin: 10px 0; }
+.option-preview span { display: flex; gap: 5px; padding: 7px; border-radius: 5px; background: #f3f3ef; font-size: 10px; }
+.option-preview span.correct { color: #287052; background: #e8f3ed; }
+.support-warning { margin: 7px 0; padding: 8px; border-radius: 5px; color: #906222; background: #fbf2df; font-size: 9px; }
+.study-item-card details { margin-top: 13px; color: var(--green); font-size: 10px; }
+.study-item-card summary { cursor: pointer; }
+.study-item-card blockquote { display: grid; gap: 7px; margin: 9px 0 0; padding: 11px; border-left: 2px solid #9db2a6; color: #555951; background: #f7faf7; font-family: Georgia, serif; font-size: 11px; line-height: 1.6; }
+.study-item-card blockquote strong { font-family: inherit; font-size: 9px; }
+.item-actions { display: flex; align-items: center; gap: 7px; margin-top: 15px; }
+.item-actions .secondary-button { padding: 7px 9px; font-size: 10px; }
 
 .chat-layout { height: 100vh; display: flex; min-width: 0; }
 .history-panel {

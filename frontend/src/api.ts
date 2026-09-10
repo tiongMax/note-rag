@@ -5,6 +5,9 @@ import type {
   Course,
   Document,
   IngestionJob,
+  GenerationJob,
+  StudyItem,
+  SourcePassage,
   Topic,
   StreamDone,
   UploadResult,
@@ -126,6 +129,7 @@ export const api = {
   detachDocument: (courseId: string, documentId: string) =>
     request<void>(`/courses/${courseId}/documents/${documentId}`, { method: "DELETE" }),
   topics: (courseId: string) => request<Topic[]>(`/courses/${courseId}/topics`),
+  topicSources: (courseId: string, topicId: string) => request<SourcePassage[]>(`/courses/${courseId}/topics/${topicId}/sources`),
   createTopic: (courseId: string, input: { title: string; parent_id?: string | null; position?: number; state?: Topic["state"] }) =>
     request<Topic>(`/courses/${courseId}/topics`, {
       method: "POST",
@@ -139,6 +143,14 @@ export const api = {
       body: JSON.stringify(changes),
     }),
   deleteTopic: (courseId: string, topicId: string) => request<void>(`/courses/${courseId}/topics/${topicId}`, { method: "DELETE" }),
+  generateCurriculum: (courseId: string) => request<GenerationJob>(`/courses/${courseId}/generate-curriculum`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" }),
+  generationJob: (jobId: string) => request<GenerationJob>(`/generation-jobs/${jobId}`),
+  generateStudyItems: (courseId: string, topicId: string) => request<GenerationJob>(`/courses/${courseId}/topics/${topicId}/generate-items`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" }),
+  studyItems: (courseId: string, topicId: string) => request<StudyItem[]>(`/courses/${courseId}/topics/${topicId}/study-items`),
+  updateStudyItem: (itemId: string, changes: Partial<Pick<StudyItem, "prompt" | "answer" | "explanation" | "difficulty" | "options" | "approval_status">>) => request<StudyItem>(`/study-items/${itemId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(changes) }),
+  archiveStudyItem: (itemId: string) => request<void>(`/study-items/${itemId}`, { method: "DELETE" }),
+  regenerateStudyItem: (itemId: string) => request<GenerationJob>(`/study-items/${itemId}/regenerate`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" }),
+  mergeTopic: (courseId: string, topicId: string, targetTopicId: string) => request<Topic>(`/courses/${courseId}/topics/${topicId}/merge`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ target_topic_id: targetTopicId }) }),
 };
 
 interface ChatOptions {
