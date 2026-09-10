@@ -21,9 +21,15 @@ def test_migration_and_repository_round_trip_on_postgres() -> None:
     transaction = connection.begin()
     session = Session(bind=connection)
     try:
-        assert {"documents", "chunks", "ingestion_jobs"} <= set(
-            inspect(connection).get_table_names()
-        )
+        assert {
+            "documents",
+            "chunks",
+            "ingestion_jobs",
+            "courses",
+            "course_documents",
+            "topics",
+            "topic_sources",
+        } <= set(inspect(connection).get_table_names())
         document = DocumentRepository(session).add(
             Document(filename="phase-2-smoke.txt", media_type="text/plain")
         )

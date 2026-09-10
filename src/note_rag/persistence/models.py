@@ -72,6 +72,11 @@ class ChatRole(StrEnum):
     ASSISTANT = "assistant"
 
 
+class TopicState(StrEnum):
+    DRAFT = "draft"
+    APPROVED = "approved"
+
+
 class Document(TimestampMixin, Base):
     __tablename__ = "documents"
     __table_args__ = (
@@ -117,6 +122,10 @@ class Document(TimestampMixin, Base):
         back_populates="document",
         cascade="all, delete-orphan",
         order_by="IngestionJob.created_at",
+    )
+    course_links: Mapped[list["CourseDocument"]] = relationship(
+        back_populates="document",
+        cascade="all, delete-orphan",
     )
 
 
@@ -175,6 +184,10 @@ class ChunkRecord(TimestampMixin, Base):
     embedded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     document: Mapped[Document] = relationship(back_populates="chunks")
+    topic_links: Mapped[list["TopicSource"]] = relationship(
+        back_populates="chunk",
+        cascade="all, delete-orphan",
+    )
 
 
 chunk_text_fts_index = Index(
@@ -188,6 +201,94 @@ chunk_text_fts_index = Index(
 cast(Table, ChunkRecord.__table__).append_constraint(
     chunk_text_fts_index.ddl_if(dialect="postgresql")
 )
+
+
+class Course(TimestampMixin, Base):
+    __tablename__ = "courses"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    title: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    description: Mapped[str] = mapped_column(Text, default="", nullable=False)
+
+    document_links: Mapped[list["CourseDocument"]] = relationship(
+        back_populates="course",
+        cascade="all, delete-orphan",
+        order_by="CourseDocument.created_at",
+    )
+    topics: Mapped[list["Topic"]] = relationship(
+        back_populates="course",
+        cascade="all, delete-orphan",
+        order_by="Topic.position",
+    )
+
+
+class CourseDocument(TimestampMixin, Base):
+    __tablename__ = "course_documents"
+
+    course_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("courses.id", ondelete="CASCADE"), primary_key=True
+    )
+    document_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("documents.id", ondelete="CASCADE"), primary_key=True
+    )
+
+    course: Mapped[Course] = relationship(back_populates="document_links")
+    document: Mapped[Document] = relationship(back_populates="course_links")
+
+
+class Topic(TimestampMixin, Base):
+    __tablename__ = "topics"
+    __table_args__ = (
+        CheckConstraint("position >= 0", name="ck_topics_position"),
+        UniqueConstraint(
+            "course_id", "parent_id", "position", name="uq_topics_sibling_position"
+        ),
+        Index("ix_topics_course_parent_position", "course_id", "parent_id", "position"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    course_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("courses.id", ondelete="CASCADE"), nullable=False
+    )
+    parent_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("topics.id", ondelete="CASCADE")
+    )
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    position: Mapped[int] = mapped_column(Integer, nullable=False)
+    state: Mapped[TopicState] = mapped_column(
+        Enum(TopicState, name="topic_state"),
+        default=TopicState.DRAFT,
+        nullable=False,
+    )
+
+    course: Mapped[Course] = relationship(back_populates="topics")
+    parent: Mapped["Topic | None"] = relationship(
+        back_populates="children", remote_side="Topic.id"
+    )
+    children: Mapped[list["Topic"]] = relationship(
+        back_populates="parent",
+        cascade="all, delete-orphan",
+        order_by="Topic.position",
+        single_parent=True,
+    )
+    sources: Mapped[list["TopicSource"]] = relationship(
+        back_populates="topic", cascade="all, delete-orphan"
+    )
+
+
+class TopicSource(TimestampMixin, Base):
+    __tablename__ = "topic_sources"
+
+    topic_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("topics.id", ondelete="CASCADE"), primary_key=True
+    )
+    chunk_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("chunks.id", ondelete="CASCADE"), primary_key=True
+    )
+
+    topic: Mapped[Topic] = relationship(back_populates="sources")
+    chunk: Mapped[ChunkRecord] = relationship(back_populates="topic_links")
 
 
 class IngestionJob(TimestampMixin, Base):

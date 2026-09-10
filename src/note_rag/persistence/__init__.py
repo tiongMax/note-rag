@@ -8,6 +8,8 @@ from note_rag.persistence.models import (
     ChatRole,
     ChunkRecord,
     Conversation,
+    Course,
+    CourseDocument,
     Document,
     DocumentStatus,
     IndexingStatus,
@@ -15,13 +17,18 @@ from note_rag.persistence.models import (
     IngestionJobStatus,
     QueryEmbeddingCache,
     RetrievalResultCache,
+    Topic,
+    TopicSource,
+    TopicState,
 )
 from note_rag.persistence.repositories import (
     ChatMessageRepository,
     ChunkRepository,
     ConversationRepository,
+    CourseRepository,
     DocumentRepository,
     IngestionJobRepository,
+    TopicRepository,
 )
 
 __all__ = [
@@ -34,6 +41,9 @@ __all__ = [
     "ChunkRepository",
     "Conversation",
     "ConversationRepository",
+    "Course",
+    "CourseDocument",
+    "CourseRepository",
     "Database",
     "Document",
     "DocumentRepository",
@@ -44,4 +54,8 @@ __all__ = [
     "IndexingStatus",
     "QueryEmbeddingCache",
     "RetrievalResultCache",
+    "Topic",
+    "TopicRepository",
+    "TopicSource",
+    "TopicState",
 ]
