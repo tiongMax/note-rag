@@ -44,7 +44,7 @@ def worker(mock_pipeline, mock_indexing, mock_consumer):
     db = Mock()
     db.session.return_value.__enter__ = Mock(return_value=Mock())
     db.session.return_value.__exit__ = Mock(return_value=None)
-    
+
     return IngestionWorker(
         database=db,
         pipeline=mock_pipeline,
@@ -87,7 +87,7 @@ def test_worker_success_acks_message(
     job_id = uuid.uuid4()
     msg = RedisMsg("s", "g", "c", b"1", {"job_id": str(job_id)})
     mock_consumer.poll.return_value = (job_id, msg)
-    
+
     repository = repository_class.return_value
     repository.claim.return_value = Mock()
     repository.get.return_value = Mock()

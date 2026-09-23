@@ -21,7 +21,7 @@ def test_ensure_group_creates_stream(redis_queue):
 
 def test_publish_and_consume(redis_queue):
     redis_queue.ensure_group("test_stream", "test_group")
-    
+
     # Consume when empty returns None
     assert redis_queue.consume("test_stream", "test_group", "consumer-1") is None
 
@@ -43,7 +43,7 @@ def test_publish_and_consume(redis_queue):
 def test_ack_removes_from_pel(redis_queue):
     redis_queue.ensure_group("test_stream", "test_group")
     redis_queue.publish("test_stream", {"test": "val"})
-    
+
     msg = redis_queue.consume("test_stream", "test_group", "consumer-1")
     assert msg is not None
     redis_queue.ack(msg)
@@ -52,7 +52,7 @@ def test_ack_removes_from_pel(redis_queue):
 def test_recover_pending(redis_queue):
     redis_queue.ensure_group("test_stream", "test_group")
     redis_queue.publish("test_stream", {"job_id": "999"})
-    
+
     # Consumer 1 reads but does not ack
     msg = redis_queue.consume("test_stream", "test_group", "consumer-1")
     assert msg is not None
@@ -81,9 +81,7 @@ def test_consumer_group_distributes_messages_without_duplicates(redis_queue):
     ]
 
     assert all(message is not None for message in consumed)
-    consumed_ids = {
-        message.msg_id for message in consumed if message is not None
-    }
+    consumed_ids = {message.msg_id for message in consumed if message is not None}
     assert consumed_ids == message_ids
     assert {message.consumer for message in consumed if message is not None} == {
         "worker-1",

@@ -32,7 +32,7 @@ def main_worker() -> int:
     # Create the app to wire up dependencies, but don't start uvicorn
     app = create_app()
     worker = app.state.ingestion_worker
-    
+
     logger.info("Starting IngestionWorker in standalone mode...")
     stop_event = threading.Event()
     try:
@@ -43,7 +43,7 @@ def main_worker() -> int:
     finally:
         # Important: shut down the DB connection pool cleanly
         app.state.database.dispose()
-        
+
     return 0
 
 
