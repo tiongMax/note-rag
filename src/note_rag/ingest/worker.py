@@ -39,10 +39,11 @@ class IngestionWorker:
         database: Database,
         pipeline: IngestionPipeline,
         indexing_service: IndexingService,
-        consumer: QueueConsumer,
+        consumer: QueueConsumer | None = None,
         *,
         max_attempts: int = 3,
         retry_backoff_seconds: float = 2.0,
+        poll_interval_seconds: float = 1.0,
         lease_timeout_seconds: float = 300.0,
         worker_id: str | None = None,
     ) -> None:
@@ -52,12 +53,15 @@ class IngestionWorker:
             raise ValueError("retry_backoff_seconds cannot be negative")
         if lease_timeout_seconds <= 0:
             raise ValueError("lease_timeout_seconds must be greater than zero")
+        if poll_interval_seconds <= 0:
+            raise ValueError("poll_interval_seconds must be greater than zero")
         self.database = database
         self.pipeline = pipeline
         self.indexing_service = indexing_service
         self.consumer = consumer
         self.max_attempts = max_attempts
         self.retry_backoff_seconds = retry_backoff_seconds
+        self.poll_interval_seconds = poll_interval_seconds
         self.lease_timeout_seconds = lease_timeout_seconds
         self.worker_id = worker_id or uuid.uuid4().hex
 
@@ -67,39 +71,85 @@ class IngestionWorker:
 
     def run_once(self) -> bool:
         """Poll for one message and process it.  Returns True if a job ran."""
-        result = self.consumer.poll()
-        if result is None:
+        if self.consumer is not None:
+            try:
+                result = self.consumer.poll()
+            except Exception:
+                logger.exception(
+                    "Redis ingestion poll failed; using database fallback"
+                )
+                result = None
+            if result is not None:
+                job_id, msg = result
+                self._execute(job_id, msg)
+                return True
+
+        now = datetime.now(UTC)
+        with self.database.session() as session:
+            job = IngestionJobRepository(session).claim_next(
+                worker_id=self.worker_id,
+                now=now,
+            )
+            job_id = job.id if job is not None else None
+        if job_id is None:
             return False
-        job_id, msg = result
-        self._execute(job_id, msg)
+        self._execute(job_id, already_claimed=True)
         return True
+
+    def run_job(self, job_id: uuid.UUID) -> bool:
+        """Claim and synchronously process one job without a queue message."""
+        return self._execute(job_id)
 
     def run_forever(self, stop_event: threading.Event) -> None:
         """Block-poll loop.  Call this from a dedicated worker process/thread."""
         self.recover_stale_jobs()
-        self.consumer.start()
+        queue_started = self.consumer is None
         while not stop_event.is_set():
+            if not queue_started and self.consumer is not None:
+                try:
+                    self.consumer.start()
+                    queue_started = True
+                except Exception:
+                    logger.exception(
+                        "Redis ingestion startup failed; using database fallback"
+                    )
             try:
-                self.run_once()
+                if self.run_once():
+                    continue
             except Exception:
                 logger.exception("Ingestion worker iteration failed")
+            stop_event.wait(self.poll_interval_seconds)
 
     # ------------------------------------------------------------------
     # Internal
     # ------------------------------------------------------------------
 
-    def _execute(self, job_id: uuid.UUID, msg: RedisMsg) -> None:
-        now = datetime.now(UTC)
-        with self.database.session() as session:
-            jobs = IngestionJobRepository(session)
-            job = jobs.claim(job_id, worker_id=self.worker_id, now=now)
-            if job is None:
-                current = jobs.get(job_id)
-                if current is None or current.status.value in {"completed", "failed"}:
-                    self.consumer.ack(msg)
-                else:
-                    self.consumer.defer(msg, delay_seconds=self.retry_backoff_seconds)
-                return
+    def _execute(
+        self,
+        job_id: uuid.UUID,
+        msg: RedisMsg | None = None,
+        *,
+        already_claimed: bool = False,
+    ) -> bool:
+        if not already_claimed:
+            now = datetime.now(UTC)
+            with self.database.session() as session:
+                jobs = IngestionJobRepository(session)
+                job = jobs.claim(job_id, worker_id=self.worker_id, now=now)
+                if job is None:
+                    current = jobs.get(job_id)
+                    if msg is not None and self.consumer is not None:
+                        if current is None or current.status.value in {
+                            "completed",
+                            "failed",
+                        }:
+                            self.consumer.ack(msg)
+                        else:
+                            self.consumer.defer(
+                                msg,
+                                delay_seconds=self.retry_backoff_seconds,
+                            )
+                    return False
 
         try:
             ingestion = self.pipeline.process_job(job_id)
@@ -110,7 +160,7 @@ class IngestionWorker:
                 str(error) or error.__class__.__name__,
                 indexing_failure=False,
             )
-            return
+            return True
 
         try:
             indexing = self.indexing_service.index_document(
@@ -124,7 +174,7 @@ class IngestionWorker:
                 str(error) or error.__class__.__name__,
                 indexing_failure=True,
             )
-            return
+            return True
 
         if indexing.error_message is not None:
             self._handle_failure(
@@ -133,7 +183,7 @@ class IngestionWorker:
                 indexing.error_message,
                 indexing_failure=True,
             )
-            return
+            return True
 
         # Success — mark job complete in DB and ack the Redis message.
         with self.database.session() as session:
@@ -141,12 +191,14 @@ class IngestionWorker:
             if job is None:
                 raise LookupError("ingestion job not found")
             IngestionJobRepository(session).complete_claim(job)
-        self.consumer.ack(msg)
+        if msg is not None and self.consumer is not None:
+            self.consumer.ack(msg)
+        return True
 
     def _handle_failure(
         self,
         job_id: uuid.UUID,
-        msg: RedisMsg,
+        msg: RedisMsg | None,
         error_message: str,
         *,
         indexing_failure: bool,
@@ -177,7 +229,8 @@ class IngestionWorker:
                 if not indexing_failure:
                     document.status = DocumentStatus.PENDING
                     document.error_message = None
-                self.consumer.defer(msg, delay_seconds=delay)
+                if msg is not None and self.consumer is not None:
+                    self.consumer.defer(msg, delay_seconds=delay)
                 return
 
             # Max attempts exhausted — ack to stop re-delivery and mark failed.
@@ -188,7 +241,8 @@ class IngestionWorker:
             else:
                 document.status = DocumentStatus.FAILED
                 document.error_message = error_message
-        self.consumer.ack(msg)
+        if msg is not None and self.consumer is not None:
+            self.consumer.ack(msg)
 
     def recover_stale_jobs(self) -> int:
         now = datetime.now(UTC)

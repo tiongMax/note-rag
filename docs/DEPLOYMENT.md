@@ -1,9 +1,9 @@
 # Production deployment
 
-Note RAG ships as one application container plus PostgreSQL with pgvector. The
-application image contains the built React interface, runs Alembic migrations
-at startup, serves FastAPI on port 8001, and starts the database-backed
-ingestion worker.
+Note RAG ships separate API, ingestion-worker, and generation-worker services,
+plus PostgreSQL, Redis/Valkey, and an Nginx entry point. A one-shot migration
+service applies Alembic migrations before independently deployable API and
+worker replicas start.
 
 ## Required configuration
 
@@ -44,8 +44,18 @@ session ends.
 Inspect logs:
 
 ```powershell
-docker compose logs -f app
+docker compose logs -f api worker generation-worker
 ```
+
+Scale ingestion independently of request handling:
+
+```powershell
+docker compose up -d --scale worker=3
+```
+
+Redis consumer groups distribute each new ingestion message to one worker.
+Unacknowledged messages are reclaimed after the configured worker lease, while
+PostgreSQL job claims prevent concurrent duplicate processing.
 
 Stop services without deleting data:
 
@@ -55,6 +65,8 @@ docker compose down
 
 Database and uploaded-file data live in the `pgvector_data` and
 `note_rag_uploads` named volumes. Back up both volumes before upgrades.
+Deployments spanning multiple hosts must replace or mount `note_rag_uploads`
+with shared durable storage accessible to every ingestion worker.
 
 ## Reverse proxy
 
@@ -68,7 +80,8 @@ host port 6024 should be removed or firewalled in a remote deployment.
 ## Operations endpoints
 
 - `GET /health` is the process liveness probe.
-- `GET /health/ready` checks database connectivity.
+- `GET /health/ready` checks database connectivity and Redis when stream-backed
+  ingestion is enabled.
 - `GET /metrics` exposes Prometheus-compatible process and HTTP metrics.
 
 Every response contains `X-Request-ID`. Supplying a safe `X-Request-ID` lets a
@@ -87,11 +100,12 @@ proxy propagate its trace identifier into structured application logs.
 ## Upgrade and rollback
 
 Before deploying a new image, back up PostgreSQL and uploaded files. The
-container applies forward migrations automatically. To inspect migration state:
+one-shot `migrate` service applies forward migrations. To inspect migration
+state:
 
 ```powershell
-docker compose exec app python -m alembic current
-docker compose exec app python -m alembic history
+docker compose run --rm migrate python -m alembic current
+docker compose run --rm migrate python -m alembic history
 ```
 
 Test migration downgrades in staging. Production rollback may require restoring

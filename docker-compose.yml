@@ -75,6 +75,7 @@ services:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-langchain}:${POSTGRES_PASSWORD:-langchain}@postgres:5432/${POSTGRES_DB:-langchain}
       REDIS_URL: redis://redis:6379/1
       BACKGROUND_WORKER_ENABLED: "false"
+      INGESTION_QUEUE_ENABLED: "true"
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       EMBEDDING_BACKEND: ${EMBEDDING_BACKEND:-gemini}
       BENCHMARK_EMBEDDING_DELAY_MS: ${BENCHMARK_EMBEDDING_DELAY_MS:-500}
@@ -134,7 +135,10 @@ services:
       APP_GIT_COMMIT: ${APP_GIT_COMMIT:-}
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-langchain}:${POSTGRES_PASSWORD:-langchain}@postgres:5432/${POSTGRES_DB:-langchain}
       REDIS_URL: redis://redis:6379/1
+      BACKGROUND_WORKER_ENABLED: "false"
+      INGESTION_QUEUE_ENABLED: "true"
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      API_AUTH_TOKEN: ${API_AUTH_TOKEN:-}
       EMBEDDING_BACKEND: ${EMBEDDING_BACKEND:-gemini}
       CHUNKING_STRATEGY: ${CHUNKING_STRATEGY:-recursive}
       CHUNK_SIZE: ${CHUNK_SIZE:-200}
@@ -143,6 +147,36 @@ services:
       JSON_LOGS: ${JSON_LOGS:-true}
       METRICS_ENABLED: ${METRICS_ENABLED:-true}
       WORKER_MAX_ATTEMPTS: ${WORKER_MAX_ATTEMPTS:-3}
+    volumes:
+      - note_rag_uploads:/app/data/uploads
+    tmpfs:
+      - /tmp
+
+  generation-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["python", "-m", "note_rag", "--mode", "generation-worker"]
+    init: true
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      APP_ENVIRONMENT: ${APP_ENVIRONMENT:-production}
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-langchain}:${POSTGRES_PASSWORD:-langchain}@postgres:5432/${POSTGRES_DB:-langchain}
+      BACKGROUND_WORKER_ENABLED: "false"
+      INGESTION_QUEUE_ENABLED: "false"
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      API_AUTH_TOKEN: ${API_AUTH_TOKEN:-}
+      EMBEDDING_BACKEND: ${EMBEDDING_BACKEND:-gemini}
+      UPLOAD_STORAGE_PATH: /app/data/uploads
+      JSON_LOGS: ${JSON_LOGS:-true}
+      METRICS_ENABLED: ${METRICS_ENABLED:-true}
+      WORKER_MAX_ATTEMPTS: ${WORKER_MAX_ATTEMPTS:-3}
+      WORKER_POLL_INTERVAL_SECONDS: ${WORKER_POLL_INTERVAL_SECONDS:-1}
     volumes:
       - note_rag_uploads:/app/data/uploads
     tmpfs:

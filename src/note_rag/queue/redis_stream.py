@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 
 import redis
+from redis.exceptions import ResponseError
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +48,7 @@ class RedisStreamQueue:
         try:
             self._r.xgroup_create(stream, group, id="0", mkstream=True)
             logger.info("Created consumer group %s on stream %s", group, stream)
-        except redis.exceptions.ResponseError as exc:
+        except ResponseError as exc:
             if "BUSYGROUP" not in str(exc):
                 raise
 
@@ -57,8 +58,10 @@ class RedisStreamQueue:
 
     def publish(self, stream: str, payload: dict[str, Any]) -> bytes:
         """Append *payload* to *stream* and return the assigned message ID."""
-        msg_id = self._r.xadd(stream, {k: str(v) for k, v in payload.items()})
-        return msg_id  # type: ignore[return-value]
+        return cast(
+            bytes,
+            self._r.xadd(stream, {k: str(v) for k, v in payload.items()}),
+        )
 
     # ------------------------------------------------------------------
     # Consumer
@@ -75,12 +78,15 @@ class RedisStreamQueue:
         Blocks for up to *_BLOCK_MS* milliseconds waiting for a message.
         Returns ``None`` if the block times out with no message.
         """
-        results = self._r.xreadgroup(
-            group,
-            consumer,
-            {stream: ">"},
-            count=1,
-            block=self._BLOCK_MS,
+        results = cast(
+            list[tuple[bytes, list[tuple[bytes, dict[bytes, bytes]]]]],
+            self._r.xreadgroup(
+                group,
+                consumer,
+                {stream: ">"},
+                count=1,
+                block=self._BLOCK_MS,
+            ),
         )
         if not results:
             return None
@@ -118,23 +124,29 @@ class RedisStreamQueue:
         # Inspect the entire group's PEL. Filtering by the new consumer name
         # only finds messages that are already owned by that consumer and can
         # never recover work left behind by a crashed replica.
-        pending = self._r.xpending_range(
-            stream,
-            group,
-            min="-",
-            max="+",
-            count=100,
+        pending = cast(
+            list[dict[str, Any]],
+            self._r.xpending_range(
+                stream,
+                group,
+                min="-",
+                max="+",
+                count=100,
+            ),
         )
         if not pending:
             return []
 
-        msg_ids = [entry["message_id"] for entry in pending]
-        claimed = self._r.xclaim(
-            stream,
-            group,
-            consumer,
-            min_idle_time=min_idle_ms,
-            message_ids=msg_ids,
+        msg_ids = [cast(bytes, entry["message_id"]) for entry in pending]
+        claimed = cast(
+            list[tuple[bytes, dict[bytes, bytes]]],
+            self._r.xclaim(
+                stream,
+                group,
+                consumer,
+                min_idle_time=min_idle_ms,
+                message_ids=cast(Any, msg_ids),
+            ),
         )
         recovered: list[RedisMsg] = []
         for msg_id, fields in claimed:

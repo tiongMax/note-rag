@@ -11,9 +11,8 @@ conversations with source citations.
 
 Note RAG combines a FastAPI service, React operator interface, PostgreSQL
 full-text search, pgvector similarity search, Gemini embeddings and chat, and a
-durable background ingestion worker. It follows the core responsibilities of
-larger RAG platforms while keeping the implementation compact enough to study
-and extend.
+durable Redis Stream-backed ingestion service. API and ingestion replicas can
+be deployed and scaled independently.
 
 ## Architecture
 
@@ -24,8 +23,8 @@ flowchart LR
 
     subgraph Ingestion
         API --> Upload["Document upload"]
-        Upload --> Jobs[("PostgreSQL job queue")]
-        Jobs --> Worker["Background worker"]
+        Upload --> Jobs[("Redis Stream<br/>consumer group")]
+        Jobs --> Worker["Ingestion worker service"]
         Worker --> Parse["Parse and token-aware chunk"]
         Parse --> Embed["Gemini embeddings"]
         Embed --> Store[("PostgreSQL + pgvector")]
@@ -49,8 +48,9 @@ flowchart LR
 - **Complete ingestion pipeline** — TXT, Markdown, and PDF parsing,
   content-addressed file storage, SHA-256 duplicate detection, token-aware
   chunking, batched embeddings, and indexing.
-- **Durable background processing** — persisted job progress, retry scheduling,
-  worker leases, failure inspection, and stale-job recovery.
+- **Horizontally scalable ingestion** — Redis Streams consumer groups decouple
+  uploads from independently deployable workers, with persisted job progress,
+  retry scheduling, worker leases, failure inspection, and stale-job recovery.
 - **Hybrid retrieval** — pgvector similarity search, PostgreSQL full-text
   search, weighted reciprocal-rank fusion, metadata filters, and an injectable
   reranker.
@@ -75,7 +75,7 @@ flowchart LR
 | Layer | Technology |
 | --- | --- |
 | API | Python 3.12, FastAPI, Pydantic |
-| Data | PostgreSQL 16, pgvector, SQLAlchemy, Alembic |
+| Data | PostgreSQL 16, pgvector, Redis/Valkey Streams, SQLAlchemy, Alembic |
 | AI | Google Gemini embeddings and chat |
 | Frontend | React 19, TypeScript, Vite |
 | Documents | pypdf, plain text, Markdown |
@@ -205,6 +205,7 @@ are listed below; see [`.env.example`](.env.example) for the complete reference.
 | `CHUNK_OVERLAP` | `20` | Token overlap between adjacent chunks. |
 | `MAX_UPLOAD_BYTES` | `10485760` | Maximum document size in bytes. |
 | `BACKGROUND_WORKER_ENABLED` | `true` | Process ingestion asynchronously when enabled. |
+| `INGESTION_QUEUE_ENABLED` | `false` | Publish ingestion jobs to Redis Streams for external workers. |
 | `CONTEXT_MAX_TOKENS` | `1200` | Default context budget for generation. |
 | `ALLOWED_HOSTS` | local hosts | Comma-separated trusted HTTP hosts. |
 | `ALLOWED_ORIGINS` | local Vite origins | Comma-separated CORS origins. |

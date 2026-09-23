@@ -249,9 +249,22 @@ def create_app(
         if app_settings.chunking_strategy == "recursive"
         else TokenChunker
     )
-    redis_client = redis.Redis.from_url(app_settings.redis_url)  # type: ignore[type-arg,var-annotated]
-    stream_queue = RedisStreamQueue(redis_client)
-    queue_publisher = QueuePublisher(stream_queue, app_settings.ingest_stream)
+    redis_client: redis.Redis | None = None  # type: ignore[type-arg]
+    queue_publisher: QueuePublisher | None = None
+    queue_consumer: QueueConsumer | None = None
+    worker_id = uuid.uuid4().hex
+    if app_settings.ingestion_queue_enabled:
+        redis_client = redis.Redis.from_url(app_settings.redis_url)
+        stream_queue = RedisStreamQueue(redis_client)
+        queue_publisher = QueuePublisher(stream_queue, app_settings.ingest_stream)
+        queue_consumer = QueueConsumer(
+            stream_queue,
+            stream=app_settings.ingest_stream,
+            group=app_settings.ingest_group,
+            consumer=worker_id,
+            recovery_idle_seconds=app_settings.worker_lease_timeout_seconds,
+            recovery_interval_seconds=app_settings.worker_poll_interval_seconds,
+        )
     pipeline = IngestionPipeline(
         resolved_database,
         resolved_storage,
@@ -263,17 +276,6 @@ def create_app(
         ),
         queue_publisher=queue_publisher,
     )
-    
-    # We use worker_id to distinguish consumers in the Redis stream group
-    worker_id = uuid.uuid4().hex
-    queue_consumer = QueueConsumer(
-        stream_queue,
-        stream=app_settings.ingest_stream,
-        group=app_settings.ingest_group,
-        consumer=worker_id,
-        recovery_idle_seconds=app_settings.worker_lease_timeout_seconds,
-        recovery_interval_seconds=app_settings.worker_poll_interval_seconds,
-    )
     ingestion_worker = IngestionWorker(
         resolved_database,
         pipeline,
@@ -281,6 +283,7 @@ def create_app(
         consumer=queue_consumer,
         max_attempts=app_settings.worker_max_attempts,
         retry_backoff_seconds=app_settings.worker_retry_backoff_seconds,
+        poll_interval_seconds=app_settings.worker_poll_interval_seconds,
         lease_timeout_seconds=app_settings.worker_lease_timeout_seconds,
         worker_id=worker_id,
     )
@@ -315,6 +318,8 @@ def create_app(
             stop_event.set()
             for worker_thread in worker_threads:
                 worker_thread.join(timeout=5)
+            if redis_client is not None:
+                redis_client.close()
             if owns_database:
                 resolved_database.dispose()
 
@@ -372,12 +377,17 @@ def create_app(
     async def readiness() -> dict[str, str]:
         try:
             await run_in_threadpool(_check_database, resolved_database)
+            if redis_client is not None:
+                await run_in_threadpool(redis_client.ping)
         except Exception as error:
             raise HTTPException(
                 status_code=503,
-                detail="database is not ready",
+                detail="a required dependency is not ready",
             ) from error
-        return {"status": "ready", "database": "ok"}
+        ready = {"status": "ready", "database": "ok"}
+        if redis_client is not None:
+            ready["redis"] = "ok"
+        return ready
 
     if app_settings.metrics_enabled:
 
@@ -1537,7 +1547,10 @@ def create_app(
         )
         if result.duplicate:
             response.status_code = 200
-        elif app_settings.background_worker_enabled:
+        elif (
+            app_settings.background_worker_enabled
+            or app_settings.ingestion_queue_enabled
+        ):
             response.status_code = 202
         elif result.job_id is not None:
             await run_in_threadpool(ingestion_worker.run_job, result.job_id)

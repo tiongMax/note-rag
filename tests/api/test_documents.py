@@ -2,6 +2,7 @@ import time
 from collections.abc import Iterator
 from pathlib import Path
 
+import fakeredis
 from fastapi.testclient import TestClient
 
 from note_rag.api.app import create_app
@@ -107,6 +108,46 @@ def test_upload_queues_background_job(
     assert job.status_code == 200
     assert job.json()["status"] == "queued"
     assert job.json()["attempts"] == 0
+
+
+def test_queue_mode_publishes_without_processing_in_api(
+    database: Database,
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    redis_client = fakeredis.FakeRedis(decode_responses=False)
+    monkeypatch.setattr(
+        "note_rag.api.app.redis.Redis.from_url",
+        lambda *_args, **_kwargs: redis_client,
+    )
+    settings = ApiSettings(
+        chunk_size=3,
+        chunk_overlap=1,
+        storage_path=tmp_path,
+        background_worker_enabled=False,
+        ingestion_queue_enabled=True,
+    )
+    app = create_app(
+        settings,
+        database=database,
+        storage=LocalFileStorage(tmp_path),
+        embedding_provider=FakeEmbeddingProvider(),
+        chat_provider=FakeChatProvider(),
+    )
+
+    with TestClient(app) as client:
+        upload = client.post(
+            "/api/v1/documents",
+            files={"file": ("queued.txt", b"redis stream job", "text/plain")},
+        )
+        ready = client.get("/health/ready")
+        job = client.get(f"/api/v1/ingestion-jobs/{upload.json()['job_id']}")
+
+    assert upload.status_code == 202
+    assert upload.json()["status"] == "pending"
+    assert job.json()["status"] == "queued"
+    assert ready.json()["redis"] == "ok"
+    assert redis_client.xlen(settings.ingest_stream) == 1
 
 
 def test_lifespan_worker_completes_queued_upload(

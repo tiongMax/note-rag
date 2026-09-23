@@ -1,4 +1,5 @@
 from pathlib import Path
+from unittest.mock import Mock
 
 from note_rag.chunking import TokenChunker
 from note_rag.ingest import IngestionPipeline, LocalFileStorage
@@ -74,6 +75,31 @@ def test_detects_duplicate_content_before_storing_again(
     assert duplicate.document_id == first.document_id
     with database.session() as session:
         assert len(DocumentRepository(session).list()) == 1
+
+
+def test_publish_failure_keeps_durable_queued_job(
+    database: Database,
+    tmp_path: Path,
+) -> None:
+    publisher = Mock()
+    publisher.enqueue.side_effect = ConnectionError("redis unavailable")
+    pipeline = IngestionPipeline(
+        database,
+        LocalFileStorage(tmp_path),
+        queue_publisher=publisher,
+    )
+
+    result = pipeline.enqueue(
+        filename="durable.txt",
+        media_type="text/plain",
+        content=b"survives queue outage",
+    )
+
+    assert result.job_id is not None
+    with database.session() as session:
+        job = IngestionJobRepository(session).get(result.job_id)
+        assert job is not None
+        assert job.status is IngestionJobStatus.QUEUED
 
 
 def test_persists_failed_parse_state(

@@ -1,6 +1,7 @@
 """Queueable parse-and-chunk ingestion pipeline."""
 
 import hashlib
+import logging
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -22,6 +23,8 @@ from note_rag.persistence import (
 
 if TYPE_CHECKING:
     from note_rag.queue import QueuePublisher
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -138,7 +141,17 @@ class IngestionPipeline:
         # Publish to Redis Stream *after* the DB transaction is committed so
         # the worker can always find the row when it picks up the message.
         if self.queue_publisher is not None and result.job_id is not None:
-            self.queue_publisher.enqueue(result.job_id)
+            try:
+                self.queue_publisher.enqueue(result.job_id)
+            except Exception:
+                # The durable PostgreSQL row remains the source of truth. Redis
+                # workers fall back to claiming queued rows, so a transient
+                # publish outage cannot strand an accepted upload.
+                logger.exception(
+                    "failed to publish ingestion job %s; workers will use the "
+                    "database fallback",
+                    result.job_id,
+                )
         return result
 
     def process_job(

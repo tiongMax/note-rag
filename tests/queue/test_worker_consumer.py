@@ -54,9 +54,30 @@ def worker(mock_pipeline, mock_indexing, mock_consumer):
     )
 
 
-def test_worker_run_once_empty(worker, mock_consumer):
+@patch("note_rag.ingest.worker.IngestionJobRepository")
+def test_worker_run_once_empty(repository_class, worker, mock_consumer):
     mock_consumer.poll.return_value = None
+    repository_class.return_value.claim_next.return_value = None
     assert worker.run_once() is False
+
+
+@patch("note_rag.ingest.worker.IngestionJobRepository")
+def test_worker_uses_database_fallback_when_stream_is_empty(
+    repository_class,
+    worker,
+    mock_consumer,
+    mock_pipeline,
+):
+    job_id = uuid.uuid4()
+    repository = repository_class.return_value
+    repository.claim_next.return_value = Mock(id=job_id)
+    repository.get.return_value = Mock()
+    mock_consumer.poll.return_value = None
+
+    assert worker.run_once() is True
+
+    mock_pipeline.process_job.assert_called_once_with(job_id)
+    mock_consumer.ack.assert_not_called()
 
 
 @patch("note_rag.ingest.worker.IngestionJobRepository")

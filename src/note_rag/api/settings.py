@@ -58,6 +58,7 @@ class ApiSettings:
     scheduler_min_interval_minutes: int = 10
     scheduler_max_interval_days: int = 365
     background_worker_enabled: bool = True
+    ingestion_queue_enabled: bool = False
     worker_max_attempts: int = 3
     worker_retry_backoff_seconds: float = 2.0
     worker_poll_interval_seconds: float = 1.0
@@ -230,6 +231,10 @@ class ApiSettings:
             background_worker_enabled=_env_bool(
                 "BACKGROUND_WORKER_ENABLED",
                 True,
+            ),
+            ingestion_queue_enabled=_env_bool(
+                "INGESTION_QUEUE_ENABLED",
+                False,
             ),
             worker_max_attempts=int(os.getenv("WORKER_MAX_ATTEMPTS", "3")),
             worker_retry_backoff_seconds=float(

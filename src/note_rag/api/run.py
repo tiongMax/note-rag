@@ -45,3 +45,21 @@ def main_worker() -> int:
         app.state.database.dispose()
         
     return 0
+
+
+def main_generation_worker() -> int:
+    """Run only the learning-material generation worker loop."""
+    app = create_app()
+    worker = app.state.generation_worker
+
+    logger.info("Starting GenerationWorker in standalone mode...")
+    stop_event = threading.Event()
+    try:
+        worker.run_forever(stop_event)
+    except KeyboardInterrupt:
+        logger.info("Received KeyboardInterrupt, stopping worker...")
+        stop_event.set()
+    finally:
+        app.state.database.dispose()
+
+    return 0
