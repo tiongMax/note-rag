@@ -22,15 +22,43 @@ def test_queue_publisher():
 
 def test_queue_consumer_start_recovers_pending():
     queue = Mock()
-    queue.recover_pending.return_value = []
+    job_id = uuid.uuid4()
+    recovered = RedisMsg(
+        stream="stream1",
+        group="grp1",
+        consumer="con1",
+        msg_id=b"1-0",
+        fields={"job_id": str(job_id)},
+    )
+    queue.recover_pending.return_value = [recovered]
     
     consumer = QueueConsumer(
-        queue, stream="stream1", group="grp1", consumer="con1"
+        queue,
+        stream="stream1",
+        group="grp1",
+        consumer="con1",
+        recovery_idle_seconds=0,
     )
     consumer.start()
     
     queue.ensure_group.assert_called_once_with("stream1", "grp1")
-    queue.recover_pending.assert_called_once_with("stream1", "grp1", "con1")
+    queue.recover_pending.assert_called_once_with(
+        "stream1", "grp1", "con1", min_idle_ms=0
+    )
+    assert consumer.poll() == (job_id, recovered)
+    queue.consume.assert_not_called()
+
+
+def test_queue_consumer_defers_retry_until_it_is_ready():
+    queue = Mock()
+    job_id = uuid.uuid4()
+    msg = RedisMsg("s", "g", "c", b"1", {"job_id": str(job_id)})
+    consumer = QueueConsumer(queue, "s", "g", "c")
+
+    consumer.defer(msg, delay_seconds=0)
+
+    assert consumer.poll() == (job_id, msg)
+    queue.consume.assert_not_called()
 
 
 def test_queue_consumer_poll_valid():

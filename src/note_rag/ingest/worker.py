@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import threading
 import uuid
+from datetime import UTC, datetime, timedelta
 
 from note_rag.embeddings import IndexingService
 from note_rag.ingest.pipeline import IngestionPipeline
@@ -42,18 +43,22 @@ class IngestionWorker:
         *,
         max_attempts: int = 3,
         retry_backoff_seconds: float = 2.0,
+        lease_timeout_seconds: float = 300.0,
         worker_id: str | None = None,
     ) -> None:
         if max_attempts <= 0:
             raise ValueError("max_attempts must be greater than zero")
         if retry_backoff_seconds < 0:
             raise ValueError("retry_backoff_seconds cannot be negative")
+        if lease_timeout_seconds <= 0:
+            raise ValueError("lease_timeout_seconds must be greater than zero")
         self.database = database
         self.pipeline = pipeline
         self.indexing_service = indexing_service
         self.consumer = consumer
         self.max_attempts = max_attempts
         self.retry_backoff_seconds = retry_backoff_seconds
+        self.lease_timeout_seconds = lease_timeout_seconds
         self.worker_id = worker_id or uuid.uuid4().hex
 
     # ------------------------------------------------------------------
@@ -71,7 +76,8 @@ class IngestionWorker:
 
     def run_forever(self, stop_event: threading.Event) -> None:
         """Block-poll loop.  Call this from a dedicated worker process/thread."""
-        self.consumer.start()  # ensure group exists + recover pending
+        self.recover_stale_jobs()
+        self.consumer.start()
         while not stop_event.is_set():
             try:
                 self.run_once()
@@ -83,6 +89,18 @@ class IngestionWorker:
     # ------------------------------------------------------------------
 
     def _execute(self, job_id: uuid.UUID, msg: RedisMsg) -> None:
+        now = datetime.now(UTC)
+        with self.database.session() as session:
+            jobs = IngestionJobRepository(session)
+            job = jobs.claim(job_id, worker_id=self.worker_id, now=now)
+            if job is None:
+                current = jobs.get(job_id)
+                if current is None or current.status.value in {"completed", "failed"}:
+                    self.consumer.ack(msg)
+                else:
+                    self.consumer.defer(msg, delay_seconds=self.retry_backoff_seconds)
+                return
+
         try:
             ingestion = self.pipeline.process_job(job_id)
         except Exception as error:
@@ -143,7 +161,12 @@ class IngestionWorker:
                 raise LookupError("document not found")
 
             if job.attempts < self.max_attempts:
-                # Don't ack — Redis will re-deliver after the idle timeout.
+                delay = self.retry_backoff_seconds * (2 ** (job.attempts - 1))
+                jobs.reschedule(
+                    job,
+                    error_message=error_message,
+                    next_attempt_at=datetime.now(UTC) + timedelta(seconds=delay),
+                )
                 logger.warning(
                     "Job %s failed (attempt %d/%d): %s — will retry via Redis",
                     job_id,
@@ -154,6 +177,7 @@ class IngestionWorker:
                 if not indexing_failure:
                     document.status = DocumentStatus.PENDING
                     document.error_message = None
+                self.consumer.defer(msg, delay_seconds=delay)
                 return
 
             # Max attempts exhausted — ack to stop re-delivery and mark failed.
@@ -165,3 +189,12 @@ class IngestionWorker:
                 document.status = DocumentStatus.FAILED
                 document.error_message = error_message
         self.consumer.ack(msg)
+
+    def recover_stale_jobs(self) -> int:
+        now = datetime.now(UTC)
+        stale_before = now - timedelta(seconds=self.lease_timeout_seconds)
+        with self.database.session() as session:
+            return IngestionJobRepository(session).recover_stale(
+                stale_before=stale_before,
+                now=now,
+            )

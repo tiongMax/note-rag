@@ -42,13 +42,24 @@ services:
     volumes:
       - ./docker/nginx.conf:/etc/nginx/conf.d/default.conf:ro
     depends_on:
-      - api
+      api:
+        condition: service_healthy
+
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["python", "-m", "alembic", "upgrade", "head"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-langchain}:${POSTGRES_PASSWORD:-langchain}@postgres:5432/${POSTGRES_DB:-langchain}
 
   api:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: note-rag-api
     command: ["python", "-m", "note_rag", "--mode", "api"]
     init: true
     restart: unless-stopped
@@ -57,6 +68,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     environment:
       APP_ENVIRONMENT: ${APP_ENVIRONMENT:-production}
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-langchain}:${POSTGRES_PASSWORD:-langchain}@postgres:5432/${POSTGRES_DB:-langchain}
@@ -106,7 +119,6 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: note-rag-worker
     command: ["python", "-m", "note_rag", "--mode", "worker"]
     init: true
     restart: unless-stopped
@@ -115,6 +127,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     environment:
       APP_ENVIRONMENT: ${APP_ENVIRONMENT:-production}
       APP_GIT_COMMIT: ${APP_GIT_COMMIT:-}

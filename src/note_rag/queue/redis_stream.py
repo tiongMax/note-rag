@@ -115,13 +115,15 @@ class RedisStreamQueue:
         Call this on worker startup to reclaim any messages that were
         in-flight when the previous worker instance crashed.
         """
+        # Inspect the entire group's PEL. Filtering by the new consumer name
+        # only finds messages that are already owned by that consumer and can
+        # never recover work left behind by a crashed replica.
         pending = self._r.xpending_range(
             stream,
             group,
             min="-",
             max="+",
             count=100,
-            consumername=consumer,
         )
         if not pending:
             return []

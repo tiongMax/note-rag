@@ -64,3 +64,28 @@ def test_recover_pending(redis_queue):
     assert len(recovered) == 1
     assert recovered[0].fields["job_id"] == "999"
     assert recovered[0].consumer == "consumer-2"
+
+
+def test_consumer_group_distributes_messages_without_duplicates(redis_queue):
+    redis_queue.ensure_group("scale_stream", "scale_group")
+    message_ids = {
+        redis_queue.publish("scale_stream", {"job_id": str(index)})
+        for index in range(4)
+    }
+
+    consumed = [
+        redis_queue.consume("scale_stream", "scale_group", "worker-1"),
+        redis_queue.consume("scale_stream", "scale_group", "worker-2"),
+        redis_queue.consume("scale_stream", "scale_group", "worker-1"),
+        redis_queue.consume("scale_stream", "scale_group", "worker-2"),
+    ]
+
+    assert all(message is not None for message in consumed)
+    consumed_ids = {
+        message.msg_id for message in consumed if message is not None
+    }
+    assert consumed_ids == message_ids
+    assert {message.consumer for message in consumed if message is not None} == {
+        "worker-1",
+        "worker-2",
+    }

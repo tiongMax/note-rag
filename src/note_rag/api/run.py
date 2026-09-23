@@ -1,6 +1,7 @@
 """Command-line entry point for the FastAPI application."""
 
 import logging
+import os
 import threading
 
 import uvicorn
@@ -10,12 +11,17 @@ from note_rag.api.app import create_app
 logger = logging.getLogger(__name__)
 
 
+def main() -> int:
+    """Run the API for the installed ``note-rag`` console script."""
+    return main_api()
+
+
 def main_api() -> int:
     """Run the FastAPI web server."""
     uvicorn.run(
         "note_rag.api.app:app",
-        host="127.0.0.1",
-        port=8001,
+        host=os.getenv("HOST", "0.0.0.0"),
+        port=int(os.getenv("PORT", "8001")),
         reload=False,
     )
     return 0

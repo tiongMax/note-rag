@@ -249,7 +249,7 @@ def create_app(
         if app_settings.chunking_strategy == "recursive"
         else TokenChunker
     )
-    redis_client = redis.Redis.from_url(app_settings.redis_url) # type: ignore[type-arg,var-annotated]
+    redis_client = redis.Redis.from_url(app_settings.redis_url)  # type: ignore[type-arg,var-annotated]
     stream_queue = RedisStreamQueue(redis_client)
     queue_publisher = QueuePublisher(stream_queue, app_settings.ingest_stream)
     pipeline = IngestionPipeline(
@@ -271,6 +271,8 @@ def create_app(
         stream=app_settings.ingest_stream,
         group=app_settings.ingest_group,
         consumer=worker_id,
+        recovery_idle_seconds=app_settings.worker_lease_timeout_seconds,
+        recovery_interval_seconds=app_settings.worker_poll_interval_seconds,
     )
     ingestion_worker = IngestionWorker(
         resolved_database,
@@ -279,6 +281,7 @@ def create_app(
         consumer=queue_consumer,
         max_attempts=app_settings.worker_max_attempts,
         retry_backoff_seconds=app_settings.worker_retry_backoff_seconds,
+        lease_timeout_seconds=app_settings.worker_lease_timeout_seconds,
         worker_id=worker_id,
     )
     stop_event = threading.Event()

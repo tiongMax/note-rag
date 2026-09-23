@@ -1,13 +1,13 @@
 """Tests for the new Redis-backed IngestionWorker."""
 
 import uuid
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 import pytest
 
 from note_rag.ingest.pipeline import IngestionResult
 from note_rag.ingest.worker import IngestionWorker
-from note_rag.persistence import DocumentStatus, IndexingStatus
+from note_rag.persistence import DocumentStatus, IngestionJobStatus
 from note_rag.queue.redis_stream import RedisMsg
 
 
@@ -59,22 +59,63 @@ def test_worker_run_once_empty(worker, mock_consumer):
     assert worker.run_once() is False
 
 
-def test_worker_success_acks_message(worker, mock_consumer, mock_pipeline):
+@patch("note_rag.ingest.worker.IngestionJobRepository")
+def test_worker_success_acks_message(
+    repository_class, worker, mock_consumer, mock_pipeline
+):
     job_id = uuid.uuid4()
     msg = RedisMsg("s", "g", "c", b"1", {"job_id": str(job_id)})
     mock_consumer.poll.return_value = (job_id, msg)
     
-    # Needs a mock DB job to not fail in complete_claim
-    mock_session = worker.database.session.return_value.__enter__.return_value
-    mock_repo = Mock()
-    mock_repo.get.return_value = Mock()
-    
-    # We patch IngestionJobRepository, but it's easier to just catch exceptions
-    # In a full test we'd use the real DB, but we just verify it tries to process
-    try:
-        worker.run_once()
-    except LookupError:
-        pass  # Expected since we didn't fully mock the DB session's IngestionJobRepository lookup
+    repository = repository_class.return_value
+    repository.claim.return_value = Mock()
+    repository.get.return_value = Mock()
 
-    # Pipeline should be called
+    assert worker.run_once() is True
+
     mock_pipeline.process_job.assert_called_once_with(job_id)
+    mock_consumer.ack.assert_called_once_with(msg)
+
+
+@patch("note_rag.ingest.worker.DocumentRepository")
+@patch("note_rag.ingest.worker.IngestionJobRepository")
+def test_worker_reschedules_and_defers_retry(
+    repository_class,
+    document_repository_class,
+    worker,
+    mock_consumer,
+    mock_pipeline,
+):
+    job_id = uuid.uuid4()
+    document_id = uuid.uuid4()
+    msg = RedisMsg("s", "g", "c", b"2", {"job_id": str(job_id)})
+    job = Mock(attempts=1, document_id=document_id)
+    repository = repository_class.return_value
+    repository.claim.return_value = job
+    repository.get.return_value = job
+    document_repository_class.return_value.get.return_value = Mock()
+    mock_pipeline.process_job.side_effect = RuntimeError("temporary failure")
+    mock_consumer.poll.return_value = (job_id, msg)
+
+    assert worker.run_once() is True
+
+    repository.reschedule.assert_called_once()
+    mock_consumer.defer.assert_called_once_with(msg, delay_seconds=2.0)
+    mock_consumer.ack.assert_not_called()
+
+
+@patch("note_rag.ingest.worker.IngestionJobRepository")
+def test_worker_acks_terminal_duplicate(
+    repository_class, worker, mock_consumer, mock_pipeline
+):
+    job_id = uuid.uuid4()
+    msg = RedisMsg("s", "g", "c", b"3", {"job_id": str(job_id)})
+    repository = repository_class.return_value
+    repository.claim.return_value = None
+    repository.get.return_value = Mock(status=IngestionJobStatus.COMPLETED)
+    mock_consumer.poll.return_value = (job_id, msg)
+
+    assert worker.run_once() is True
+
+    mock_pipeline.process_job.assert_not_called()
+    mock_consumer.ack.assert_called_once_with(msg)
